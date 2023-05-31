@@ -9,4 +9,17 @@ metadata:
     app.kubernetes.io/created-by: s3-operator
   name: bucket-sample
 spec:
-  # TODO(user): Add fields here
+  # Bucket name (on S3 server, as opposed to the name of the CR)
+  name: dummy-bucket
+
+  # Paths to create on the bucket 
+  paths:
+    - opendata
+  
+  # Quota values are in bytes
+  # TODO : ideally, it could be better to be able to specify the size unit - or at least use one less verbose
+  # than "bytes", but the first S3 provider implemented on this operator does not allow this. Or rather, the Minio
+  # CLI (mc) does, but the Go client sadly does not, which leaves us with the default unit of "bytes".
+  quota:
+    default: 10000000    # default value used for quota initial creation
+    # override: 20000000 # value overridable by a cluster admin 

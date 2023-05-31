@@ -28,14 +28,24 @@ type BucketSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
 
-	// Foo is an example field of Bucket. Edit bucket_types.go to remove/update
-	Foo string `json:"foo,omitempty"`
+	// Name of the bucket
+	// +kubebuilder:validation:Required
+	Name string `json:"name"`
+
+	// Paths (folders) to create inside the bucket
+	// +kubebuilder:validation:Optional
+	Paths []string `json:"paths,omitempty"`
+
+	// Quota to apply to the bucket
+	// +kubebuilder:validation:Required
+	Quota Quota `json:"quota"`
 }
 
 // BucketStatus defines the observed state of Bucket
 type BucketStatus struct {
 	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
+	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type"`
 }
 
 //+kubebuilder:object:root=true
@@ -61,4 +71,14 @@ type BucketList struct {
 
 func init() {
 	SchemeBuilder.Register(&Bucket{}, &BucketList{})
+}
+
+type Quota struct {
+	// Default quota to apply, mandatory
+	// +kubebuilder:validation:Required
+	Default int64 `json:"default"`
+
+	// Optional override quota, to be used by cluster admin.
+	// +kubebuilder:validation:Optional
+	Override int64 `json:"override,omitempty"`
 }

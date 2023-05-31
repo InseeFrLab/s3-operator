@@ -28,14 +28,20 @@ type PolicySpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
 
-	// Foo is an example field of Policy. Edit policy_types.go to remove/update
-	Foo string `json:"foo,omitempty"`
+	// Name of the policy
+	// +kubebuilder:validation:Required
+	Name string `json:"name"`
+
+	// +kubebuilder:validation:Required
+	// Content of the policy (IAM JSON format)
+	PolicyContent string `json:"policyContent"`
 }
 
 // PolicyStatus defines the observed state of Policy
 type PolicyStatus struct {
 	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
+	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type"`
 }
 
 //+kubebuilder:object:root=true

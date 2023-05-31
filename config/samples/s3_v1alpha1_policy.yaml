@@ -9,4 +9,24 @@ metadata:
     app.kubernetes.io/created-by: s3-operator
   name: policy-sample
 spec:
-  # TODO(user): Add fields here
+  # Policy name (on S3 server, as opposed to the name of the CR)
+  name: dummy-policy
+
+  # Content of the policy, as multiline string
+  policyContent: >-
+    {
+      "Version": "2012-10-17",
+      "Statement": [
+      {
+        "Effect": "Allow",
+        "Action": [
+          "s3:*"
+        ],
+        "Resource": [
+          "arn:aws:s3:::dummy-bucket",
+          "arn:aws:s3:::dummy-bucket/*"
+        ]
+      }
+      ]
+    }
+

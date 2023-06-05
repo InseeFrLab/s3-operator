@@ -7,7 +7,6 @@ import (
 	"crypto/x509"
 	"encoding/base64"
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 
@@ -23,7 +22,7 @@ type MinioS3Client struct {
 }
 
 func newMinioS3Client(S3Config *S3Config) *MinioS3Client {
-	log.Println("create minio clients")
+	s3Logger.Info("creating minio clients (regular and admin)")
 
 	minioOptions := &minio.Options{
 		Creds:  credentials.NewStaticV4(S3Config.AccessKey, S3Config.SecretKey, ""),
@@ -48,7 +47,7 @@ func newMinioS3Client(S3Config *S3Config) *MinioS3Client {
 		for _, caCertificateBase64 := range S3Config.CaCertificatesBase64 {
 			decodedCaCertificate, err := base64.StdEncoding.DecodeString(caCertificateBase64)
 			if err != nil {
-				log.Fatal("error:", err)
+				s3Logger.Error(err, "an error occurred while parsing a base64-encoded CA certificate")
 			}
 
 			rootCAs.AppendCertsFromPEM(decodedCaCertificate)
@@ -68,7 +67,7 @@ func newMinioS3Client(S3Config *S3Config) *MinioS3Client {
 
 		caCert, err := os.ReadFile(S3Config.CaBundlePath)
 		if err != nil {
-			log.Fatalf("Error opening CA cert file %s, Error: %s", S3Config.CaBundlePath, err)
+			s3Logger.Error(err, "an error occurred while reading a CA certificates bundle file")
 		}
 		rootCAs.AppendCertsFromPEM([]byte(caCert))
 
@@ -90,12 +89,12 @@ func newMinioS3Client(S3Config *S3Config) *MinioS3Client {
 
 	minioClient, err := minio.New(S3Config.S3UrlEndpoint, minioOptions)
 	if err != nil {
-		log.Fatalln(err)
+		s3Logger.Error(err, "an error occurred while creating a new minio client")
 	}
 
 	adminClient, err := madmin.New(S3Config.S3UrlEndpoint, S3Config.AccessKey, S3Config.SecretKey, S3Config.UseSsl)
 	if err != nil {
-		log.Fatalln(err)
+		s3Logger.Error(err, "an error occurred while creating a new minio admin client")
 	}
 	// Getting the custom root CA (if any) from the "regular" client's Transport
 	adminClient.SetCustomTransport(minioOptions.Transport)
@@ -107,45 +106,46 @@ func newMinioS3Client(S3Config *S3Config) *MinioS3Client {
 // Bucket methods //
 // //////////////////
 func (minioS3Client *MinioS3Client) BucketExists(name string) (bool, error) {
-	log.Println("check if bucket " + name + " exists")
+	s3Logger.Info("checking bucket existence", "bucket", name)
 	return minioS3Client.client.BucketExists(context.Background(), name)
 }
 
 func (minioS3Client *MinioS3Client) CreateBucket(name string) error {
-	log.Println("create bucket " + name)
+	s3Logger.Info("checking a bucket", "bucket", name)
 	return minioS3Client.client.MakeBucket(context.Background(), name, minio.MakeBucketOptions{Region: minioS3Client.s3Config.Region})
 }
 
 func (minioS3Client *MinioS3Client) DeleteBucket(name string) error {
-	log.Println("delete bucket " + name)
+	s3Logger.Info("deleting a bucket", "bucket", name)
 	return minioS3Client.client.RemoveBucket(context.Background(), name)
 }
 
-func (minioS3Client *MinioS3Client) CreatePath(bucketname string, name string) error {
-	log.Println("create path " + name + " in bucket" + bucketname)
+func (minioS3Client *MinioS3Client) CreatePath(bucketname string, path string) error {
+	s3Logger.Info("creating a path on a bucket", "bucket", bucketname, "path", path)
 	emptyReader := bytes.NewReader([]byte(""))
-	_, err := minioS3Client.client.PutObject(context.Background(), bucketname, "/"+name+"/"+".keep", emptyReader, 0, minio.PutObjectOptions{})
+	_, err := minioS3Client.client.PutObject(context.Background(), bucketname, "/"+path+"/"+".keep", emptyReader, 0, minio.PutObjectOptions{})
 	if err != nil {
 		fmt.Println(err)
-		return fmt.Errorf("error on path creation" + bucketname + " " + name)
+		return fmt.Errorf("error on path creation" + bucketname + " " + path)
 	}
 	return nil
 }
 
-func (minioS3Client *MinioS3Client) PathExists(bucketname string, name string) (bool, error) {
-	log.Println("check if path " + name + " exists in bucket " + bucketname)
+func (minioS3Client *MinioS3Client) PathExists(bucketname string, path string) (bool, error) {
+	s3Logger.Info("checking path existence on a bucket", "bucket", bucketname, "path", path)
 	_, err := minioS3Client.client.
 		StatObject(context.Background(),
 			bucketname,
-			"/"+name+"/"+".keep",
+			"/"+path+"/"+".keep",
 			minio.StatObjectOptions{})
 
 	if err != nil {
 		if minio.ToErrorResponse(err).StatusCode == 404 {
-			fmt.Println("The path does not exist")
+			// fmt.Println("The path does not exist")
+			s3Logger.Info("the path does not exist", "bucket", bucketname, "path", path)
 			return false, nil
 		} else {
-			// There was an error.
+			s3Logger.Error(err, "an error occurred while checking path existence", "bucket", bucketname, "path", path)
 			return false, err
 		}
 	}
@@ -157,16 +157,16 @@ func (minioS3Client *MinioS3Client) PathExists(bucketname string, name string) (
 // Quota methods //
 // /////////////////
 func (minioS3Client *MinioS3Client) GetQuota(name string) (int64, error) {
-	log.Println("bucket " + name + " get quota")
+	s3Logger.Info("getting quota on bucket", "bucket", name)
 	bucketQuota, err := minioS3Client.adminClient.GetBucketQuota(context.Background(), name)
 	if err != nil {
-		log.Fatalln(err)
+		s3Logger.Error(err, "error while getting quota on bucket", "bucket", name)
 	}
 	return int64(bucketQuota.Quota), err
 }
 
 func (minioS3Client *MinioS3Client) SetQuota(name string, quota int64) error {
-	log.Println("set quota " + fmt.Sprint(quota) + " on bucket " + name)
+	s3Logger.Info("setting quota on bucket", "bucket", name, "quotaToSet", quota)
 	minioS3Client.adminClient.SetBucketQuota(context.Background(), name, &madmin.BucketQuota{Quota: uint64(quota), Type: madmin.HardQuota})
 	return nil
 }
@@ -188,7 +188,7 @@ func (minioS3Client *MinioS3Client) SetQuota(name string, quota int64) error {
 // A consequence is that we do things a little differently compared to buckets - instead of just testing for
 // existence, we get the whole policy info, and the controller uses it down the line.
 func (minioS3Client *MinioS3Client) GetPolicyInfo(name string) (*madmin.PolicyInfo, error) {
-	log.Println("check if policy " + name + " exists")
+	s3Logger.Info("retrieving policy info", "policy", name)
 
 	policy, err := minioS3Client.adminClient.InfoCannedPolicyV2(context.Background(), name)
 
@@ -197,10 +197,10 @@ func (minioS3Client *MinioS3Client) GetPolicyInfo(name string) (*madmin.PolicyIn
 		// better than testing the error message as we did before
 		// if err.Error() == "The canned policy does not exist. (Specified canned policy does not exist)" {
 		if madmin.ToErrorResponse(err).Code == "XMinioAdminNoSuchPolicy" {
-			log.Println("policy " + name + " does not exist")
+			s3Logger.Info("the policy does not exist", "policy", name)
 			return nil, nil
 		} else {
-			log.Println("an error has occurred while checking for policy existence")
+			s3Logger.Error(err, "an error occurred while checking policy existence", "policy", name)
 			return nil, err
 		}
 	}
@@ -211,6 +211,6 @@ func (minioS3Client *MinioS3Client) GetPolicyInfo(name string) (*madmin.PolicyIn
 // The AddCannedPolicy of the madmin client actually does both creation and update (so does the CLI, as both
 // are wired to the same endpoint on Minio API server).
 func (minioS3Client *MinioS3Client) CreateOrUpdatePolicy(name string, content string) error {
-	log.Println("create or update policy " + name)
+	s3Logger.Info("create or update policy", "policy", name, "policyContent", content)
 	return minioS3Client.adminClient.AddCannedPolicy(context.Background(), name, []byte(content))
 }

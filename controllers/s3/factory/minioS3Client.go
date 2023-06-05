@@ -6,7 +6,6 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
-	"fmt"
 	"net/http"
 	"os"
 
@@ -125,8 +124,8 @@ func (minioS3Client *MinioS3Client) CreatePath(bucketname string, path string) e
 	emptyReader := bytes.NewReader([]byte(""))
 	_, err := minioS3Client.client.PutObject(context.Background(), bucketname, "/"+path+"/"+".keep", emptyReader, 0, minio.PutObjectOptions{})
 	if err != nil {
-		fmt.Println(err)
-		return fmt.Errorf("error on path creation" + bucketname + " " + path)
+		s3Logger.Error(err, "an error occurred during path creation on bucket", "bucket", bucketname, "path", path)
+		return err
 	}
 	return nil
 }
@@ -211,6 +210,6 @@ func (minioS3Client *MinioS3Client) GetPolicyInfo(name string) (*madmin.PolicyIn
 // The AddCannedPolicy of the madmin client actually does both creation and update (so does the CLI, as both
 // are wired to the same endpoint on Minio API server).
 func (minioS3Client *MinioS3Client) CreateOrUpdatePolicy(name string, content string) error {
-	s3Logger.Info("create or update policy", "policy", name, "policyContent", content)
+	s3Logger.Info("create or update policy", "policy", name)
 	return minioS3Client.adminClient.AddCannedPolicy(context.Background(), name, []byte(content))
 }

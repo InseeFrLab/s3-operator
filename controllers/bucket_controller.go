@@ -69,14 +69,9 @@ func (r *BucketReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	// Check bucket existence on the S3 server
 	found, err := r.S3Client.BucketExists(bucketResource.Spec.Name)
 	if err != nil {
-		log.Log.Error(err, err.Error())
-		// TODO ? : logging in this way gets the error from S3Client, but not the one form r.Status().Update()
-		// (this applies to every occurrence of SetBucketStatusCondition down below)
-		SetBucketStatusCondition(bucketResource, "OperatorFailed", metav1.ConditionFalse, "BucketExistenceCheckFailed",
-			fmt.Sprintf("Checking existence of bucket [%s] from S3 instance has failed", bucketResource.Spec.Name))
-		return ctrl.Result{}, utilerrors.NewAggregate([]error{err, r.Status().Update(ctx, bucketResource)})
-
-		// return ctrl.Result{}, fmt.Errorf("can't check bucket existence " + bucket.Spec.Name)
+		logger.Error(err, "an error occurred while checking the existence of a bucket", "bucket", bucketResource.Spec.Name)
+		return r.SetBucketStatusConditionAndUpdate(ctx, bucketResource, "OperatorFailed", metav1.ConditionFalse, "BucketExistenceCheckFailed",
+			fmt.Sprintf("Checking existence of bucket [%s] from S3 instance has failed", bucketResource.Spec.Name), err)
 	}
 
 	// If the bucket does not exist, it is created based on the CR (with potential quotas and paths)
@@ -85,42 +80,32 @@ func (r *BucketReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		// Bucket creation
 		err = r.S3Client.CreateBucket(bucketResource.Spec.Name)
 		if err != nil {
-			log.Log.Error(err, err.Error())
-			SetBucketStatusCondition(bucketResource, "OperatorFailed", metav1.ConditionFalse, "BucketCreationFailed",
-				fmt.Sprintf("Creation of bucket [%s] on S3 instance has failed", bucketResource.Spec.Name))
-			return ctrl.Result{}, utilerrors.NewAggregate([]error{err, r.Status().Update(ctx, bucketResource)})
-			// return ctrl.Result{}, fmt.Errorf("can't create bucket " + bucketResource.Spec.Name)
+			logger.Error(err, "an error occurred while creating a bucket", "bucket", bucketResource.Spec.Name)
+			return r.SetBucketStatusConditionAndUpdate(ctx, bucketResource, "OperatorFailed", metav1.ConditionFalse, "BucketCreationFailed",
+				fmt.Sprintf("Creation of bucket [%s] on S3 instance has failed", bucketResource.Spec.Name), err)
 		}
 
 		// Setting quotas
 		err = r.S3Client.SetQuota(bucketResource.Spec.Name, bucketResource.Spec.Quota.Default)
 		if err != nil {
-			log.Log.Error(err, err.Error())
-			SetBucketStatusCondition(bucketResource, "OperatorFailed", metav1.ConditionFalse, "SetQuotaOnBucketFailed",
-				fmt.Sprintf("Setting a quota of [%v] on bucket [%s] has failed", bucketResource.Spec.Quota.Default, bucketResource.Spec.Name))
-			return ctrl.Result{}, utilerrors.NewAggregate([]error{err, r.Status().Update(ctx, bucketResource)})
-			// return ctrl.Result{}, fmt.Errorf("can't set quota for bucket " + bucketResource.Spec.Name)
+			logger.Error(err, "an error occurred while setting a quota on a bucket", "bucket", bucketResource.Spec.Name, "quota", bucketResource.Spec.Quota.Default)
+			return r.SetBucketStatusConditionAndUpdate(ctx, bucketResource, "OperatorFailed", metav1.ConditionFalse, "SetQuotaOnBucketFailed",
+				fmt.Sprintf("Setting a quota of [%v] on bucket [%s] has failed", bucketResource.Spec.Quota.Default, bucketResource.Spec.Name), err)
 		}
 
 		// Création des chemins
 		for _, v := range bucketResource.Spec.Paths {
 			err = r.S3Client.CreatePath(bucketResource.Spec.Name, v)
 			if err != nil {
-				log.Log.Error(err, err.Error())
-				SetBucketStatusCondition(bucketResource, "OperatorFailed", metav1.ConditionFalse, "CreatingPathOnBucketFailed",
-					fmt.Sprintf("Creating the path [%s] on bucket [%s] has failed", v, bucketResource.Spec.Name))
-				return ctrl.Result{}, utilerrors.NewAggregate([]error{err, r.Status().Update(ctx, bucketResource)})
-				// return ctrl.Result{}, fmt.Errorf("can't create path " + v + " for bucket " + bucketResource.Spec.Name)
+				logger.Error(err, "an error occurred while creating a path on a bucket", "bucket", bucketResource.Spec.Name, "path", v)
+				return r.SetBucketStatusConditionAndUpdate(ctx, bucketResource, "OperatorFailed", metav1.ConditionFalse, "CreatingPathOnBucketFailed",
+					fmt.Sprintf("Creating the path [%s] on bucket [%s] has failed", v, bucketResource.Spec.Name), err)
 			}
 		}
 
 		// The bucket creation, quota setting and path creation happened without any error
-		SetBucketStatusCondition(bucketResource, "OperatorSucceeded", metav1.ConditionTrue, "BucketCreated",
-			fmt.Sprintf("The bucket [%s] was created with its quota and paths", bucketResource.Spec.Name))
-		if err := r.Status().Update(ctx, bucketResource); err != nil {
-			return ctrl.Result{}, err
-		}
-		return ctrl.Result{}, nil
+		return r.SetBucketStatusConditionAndUpdate(ctx, bucketResource, "OperatorSucceeded", metav1.ConditionTrue, "BucketCreated",
+			fmt.Sprintf("The bucket [%s] was created with its quota and paths", bucketResource.Spec.Name), nil)
 	}
 
 	// If the bucket exists on the S3 server, then we need to compare it to
@@ -129,11 +114,9 @@ func (r *BucketReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	// Checking effectiveQuota existence on the bucket
 	effectiveQuota, err := r.S3Client.GetQuota(bucketResource.Spec.Name)
 	if err != nil {
-		log.Log.Error(err, err.Error())
-		SetBucketStatusCondition(bucketResource, "OperatorFailed", metav1.ConditionFalse, "BucketQuotaCheckFailed",
-			fmt.Sprintf("The check for a quota on bucket [%s] has failed", bucketResource.Spec.Name))
-		return ctrl.Result{}, utilerrors.NewAggregate([]error{err, r.Status().Update(ctx, bucketResource)})
-		// return ctrl.Result{}, fmt.Errorf("can't get quota for " + bucketResource.Spec.Name)
+		logger.Error(err, "an error occurred while getting the quota for a bucket", "bucket", bucketResource.Spec.Name)
+		return r.SetBucketStatusConditionAndUpdate(ctx, bucketResource, "OperatorFailed", metav1.ConditionFalse, "BucketQuotaCheckFailed",
+			fmt.Sprintf("The check for a quota on bucket [%s] has failed", bucketResource.Spec.Name), err)
 	}
 
 	// If a quota exists, we check it versus the spec of the CR. In case they don't match,
@@ -148,11 +131,9 @@ func (r *BucketReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	if effectiveQuota != quotaToResetTo {
 		err = r.S3Client.SetQuota(bucketResource.Spec.Name, quotaToResetTo)
 		if err != nil {
-			log.Log.Error(err, err.Error())
-			SetBucketStatusCondition(bucketResource, "OperatorFailed", metav1.ConditionFalse, "BucketQuotaUpdateFailed",
-				fmt.Sprintf("The quota update (%v => %v) on bucket [%s] has failed", effectiveQuota, quotaToResetTo, bucketResource.Spec.Name))
-			return ctrl.Result{}, utilerrors.NewAggregate([]error{err, r.Status().Update(ctx, bucketResource)})
-			// return ctrl.Result{}, fmt.Errorf("can't set quota for " + bucketResource.Spec.Name)
+			logger.Error(err, "an error occurred while resetting the quota for a bucket", "bucket", bucketResource.Spec.Name, "quotaToResetTo", quotaToResetTo)
+			return r.SetBucketStatusConditionAndUpdate(ctx, bucketResource, "OperatorFailed", metav1.ConditionFalse, "BucketQuotaUpdateFailed",
+				fmt.Sprintf("The quota update (%v => %v) on bucket [%s] has failed", effectiveQuota, quotaToResetTo, bucketResource.Spec.Name), err)
 		}
 	}
 
@@ -166,32 +147,25 @@ func (r *BucketReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	for _, pathInCr := range bucketResource.Spec.Paths {
 		pathExists, err := r.S3Client.PathExists(bucketResource.Spec.Name, pathInCr)
 		if err != nil {
-			log.Log.Error(err, err.Error())
-			SetBucketStatusCondition(bucketResource, "OperatorFailed", metav1.ConditionFalse, "BucketPathCheckFailed",
-				fmt.Sprintf("The check for path [%s] on bucket [%s] has failed", pathInCr, bucketResource.Spec.Name))
-			return ctrl.Result{}, utilerrors.NewAggregate([]error{err, r.Status().Update(ctx, bucketResource)})
-			// return ctrl.Result{}, fmt.Errorf("can't check path " + bucketResource.Spec.Name)
+			logger.Error(err, "an error occurred while checking a path's existence on a bucket", "bucket", bucketResource.Spec.Name, "path", pathInCr)
+			return r.SetBucketStatusConditionAndUpdate(ctx, bucketResource, "OperatorFailed", metav1.ConditionFalse, "BucketPathCheckFailed",
+				fmt.Sprintf("The check for path [%s] on bucket [%s] has failed", pathInCr, bucketResource.Spec.Name), err)
 		}
 
 		if !pathExists {
 			err = r.S3Client.CreatePath(bucketResource.Spec.Name, pathInCr)
 			if err != nil {
-				log.Log.Error(err, err.Error())
-				SetBucketStatusCondition(bucketResource, "OperatorFailed", metav1.ConditionFalse, "BucketPathCreationFailed",
-					fmt.Sprintf("The creation of path [%s] on bucket [%s] has failed", pathInCr, bucketResource.Spec.Name))
-				return ctrl.Result{}, utilerrors.NewAggregate([]error{err, r.Status().Update(ctx, bucketResource)})
-				// return ctrl.Result{}, fmt.Errorf("can't create path " + pathInCr)
+				logger.Error(err, "an error occurred while creating a path on a bucket", "bucket", bucketResource.Spec.Name, "path", pathInCr)
+				return r.SetBucketStatusConditionAndUpdate(ctx, bucketResource, "OperatorFailed", metav1.ConditionFalse, "BucketPathCreationFailed",
+					fmt.Sprintf("The creation of path [%s] on bucket [%s] has failed", pathInCr, bucketResource.Spec.Name), err)
 			}
 		}
 	}
 
 	// The bucket reconciliation with its CR was succesful (or NOOP)
-	SetBucketStatusCondition(bucketResource, "OperatorSucceeded", metav1.ConditionTrue, "BucketUpdated",
-		fmt.Sprintf("The bucket [%s] was updated according to its matching custom resource", bucketResource.Spec.Name))
-	if err := r.Status().Update(ctx, bucketResource); err != nil {
-		return ctrl.Result{}, err
-	}
-	return ctrl.Result{}, nil
+	return r.SetBucketStatusConditionAndUpdate(ctx, bucketResource, "OperatorSucceeded", metav1.ConditionTrue, "BucketUpdated",
+		fmt.Sprintf("The bucket [%s] was updated according to its matching custom resource", bucketResource.Spec.Name), nil)
+
 }
 
 // SetupWithManager sets up the controller with the Manager.*
@@ -214,7 +188,9 @@ func (r *BucketReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
-func SetBucketStatusCondition(bucketResource *s3v1alpha1.Bucket, conditionType string, status metav1.ConditionStatus, reason string, message string) {
+func (r *BucketReconciler) SetBucketStatusConditionAndUpdate(ctx context.Context, bucketResource *s3v1alpha1.Bucket, conditionType string, status metav1.ConditionStatus, reason string, message string, srcError error) (ctrl.Result, error) {
+	logger := log.FromContext(ctx)
+
 	meta.SetStatusCondition(&bucketResource.Status.Conditions,
 		metav1.Condition{
 			Type:               conditionType,
@@ -224,4 +200,11 @@ func SetBucketStatusCondition(bucketResource *s3v1alpha1.Bucket, conditionType s
 			Message:            message,
 			ObservedGeneration: bucketResource.GetGeneration(),
 		})
+
+	err := r.Status().Update(ctx, bucketResource)
+	if err != nil {
+		logger.Error(err, "an error occurred while updating the status of the bucket resource")
+		return ctrl.Result{}, utilerrors.NewAggregate([]error{err, srcError})
+	}
+	return ctrl.Result{}, srcError
 }

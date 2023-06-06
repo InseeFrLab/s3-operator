@@ -4,14 +4,20 @@ import (
 	"fmt"
 
 	"github.com/minio/madmin-go/v2"
+
+	ctrl "sigs.k8s.io/controller-runtime"
+)
+
+var (
+	s3Logger = ctrl.Log.WithName("s3Client")
 )
 
 type S3Client interface {
 	BucketExists(name string) (bool, error)
 	CreateBucket(name string) error
 	DeleteBucket(name string) error
-	CreatePath(bucketname string, name string) error
-	PathExists(bucketname string, name string) (bool, error)
+	CreatePath(bucketname string, path string) error
+	PathExists(bucketname string, path string) (bool, error)
 	GetQuota(name string) (int64, error)
 	SetQuota(name string, quota int64) error
 	// see comment in [minioS3Client.go] regarding the absence of a PolicyExists method

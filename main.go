@@ -25,6 +25,7 @@ import (
 	// to ensure that exec-entrypoint and run can make use of them.
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
+	"go.uber.org/zap/zapcore"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -84,17 +85,18 @@ func main() {
 		"Enable leader election for controller manager. "+
 			"Enabling this will ensure there is only one active controller manager.")
 	// Flags S3
-	flag.StringVar(&s3Provider, "s3-provider", "minio", "provider s3")
-	flag.StringVar(&s3EndpointUrl, "s3-endpoint-url", "localhost:9000", "adress of s3")
+	flag.StringVar(&s3Provider, "s3-provider", "minio", "S3 provider (possible values : minio, mockedS3Provider)")
+	flag.StringVar(&s3EndpointUrl, "s3-endpoint-url", "localhost:9000", "Hostname (or hostname:port) of the S3 server")
 	flag.StringVar(&accessKey, "s3-access-key", "ROOTNAME", "The accessKey of the acount")
 	flag.StringVar(&secretKey, "s3-secret-key", "CHANGEME123", "The secretKey of the acount")
 	flag.Var(&caCertificatesBase64, "s3-ca-certificate-base64", "(Optional) Base64 encoded, PEM format certificate file for a certificate authority, for https requests to S3")
 	flag.StringVar(&caCertificatesBundlePath, "s3-ca-certificate-bundle-path", "", "(Optional) Path to a CA certificate file, for https requests to S3")
-	flag.StringVar(&region, "region", "use-east-1", "The region")
-	flag.BoolVar(&useSsl, "useSsl", true, "ssl or not ")
+	flag.StringVar(&region, "region", "us-east-1", "The region to configure for the S3 client")
+	flag.BoolVar(&useSsl, "useSsl", true, "Use of SSL/TLS to connect to the S3 endpoint")
 
 	opts := zap.Options{
 		Development: true,
+		TimeEncoder: zapcore.ISO8601TimeEncoder,
 	}
 	opts.BindFlags(flag.CommandLine)
 	flag.Parse()
@@ -130,8 +132,9 @@ func main() {
 	s3Client, err := factory.GetS3Client(s3Config.S3Provider, s3Config)
 	if err != nil {
 		// setupLog.Log.Error(err, err.Error())
-		fmt.Print(s3Client)
-		fmt.Print(err)
+		// fmt.Print(s3Client)
+		// fmt.Print(err)
+		setupLog.Error(err, "an error occurred while creating the S3 client", "s3Client", s3Client)
 		os.Exit(1)
 	}
 

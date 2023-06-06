@@ -75,11 +75,8 @@ func (r *PolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	// If the policy does not exist on S3...
 	if err != nil {
 		logger.Error(err, "an error occurred while checking the existence of a policy", "policy", policyResource.Spec.Name)
-		// TODO ? : logging in this way gets the error from S3Client, but not the one from r.Status().Update()
-		// (this applies to every occurrence of SetBucketStatusCondition down below)
-		SetPolicyStatusCondition(policyResource, "OperatorFailed", metav1.ConditionFalse, "PolicyInfoFailed",
-			fmt.Sprintf("Obtaining policy[%s] info from S3 instance has failed", policyResource.Spec.Name))
-		return ctrl.Result{}, utilerrors.NewAggregate([]error{err, r.Status().Update(ctx, policyResource)})
+		return r.SetPolicyStatusConditionAndUpdate(ctx, policyResource, "OperatorFailed", metav1.ConditionFalse, "PolicyInfoFailed",
+			fmt.Sprintf("Obtaining policy[%s] info from S3 instance has failed", policyResource.Spec.Name), err)
 	}
 
 	if effectivePolicy == nil {
@@ -88,19 +85,13 @@ func (r *PolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		err = r.S3Client.CreateOrUpdatePolicy(policyResource.Spec.Name, policyResource.Spec.PolicyContent)
 		if err != nil {
 			logger.Error(err, "an error occurred while creating the policy", "policy", policyResource.Spec.Name)
-			SetPolicyStatusCondition(policyResource, "OperatorFailed", metav1.ConditionFalse, "PolicyCreationFailed",
-				fmt.Sprintf("The creation of policy [%s] has failed", policyResource.Spec.Name))
-			return ctrl.Result{}, utilerrors.NewAggregate([]error{err, r.Status().Update(ctx, policyResource)})
+			return r.SetPolicyStatusConditionAndUpdate(ctx, policyResource, "OperatorFailed", metav1.ConditionFalse, "PolicyCreationFailed",
+				fmt.Sprintf("The creation of policy [%s] has failed", policyResource.Spec.Name), err)
 		}
 
 		// Update status to reflect policy creation
-		SetPolicyStatusCondition(policyResource, "OperatorSucceeded", metav1.ConditionTrue, "PolicyCreated",
-			fmt.Sprintf("The creation of policy [%s] has succeeded", policyResource.Spec.Name))
-		if err := r.Status().Update(ctx, policyResource); err != nil {
-			logger.Error(err, "an error occurred while updating the status after creating the policy", "policy", policyResource.Spec.Name)
-			return ctrl.Result{}, err
-		}
-		return ctrl.Result{}, nil
+		return r.SetPolicyStatusConditionAndUpdate(ctx, policyResource, "OperatorSucceeded", metav1.ConditionTrue, "PolicyCreated",
+			fmt.Sprintf("The creation of policy [%s] has succeeded", policyResource.Spec.Name), nil)
 
 	}
 
@@ -108,38 +99,27 @@ func (r *PolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	matching, err := IsPolicyMatchingWithCustomResource(policyResource, effectivePolicy)
 	if err != nil {
 		logger.Error(err, "an error occurred while comparing actual and expected configuration for the policy", "policy", policyResource.Spec.Name)
-		SetPolicyStatusCondition(policyResource, "OperatorFailed", metav1.ConditionFalse, "PolicyComparisonFailed",
-			fmt.Sprintf("The comparison between the effective policy [%s] on S3 and its corresponding custom resource on K8S has failed", policyResource.Spec.Name))
-		return ctrl.Result{}, utilerrors.NewAggregate([]error{err, r.Status().Update(ctx, policyResource)})
+		return r.SetPolicyStatusConditionAndUpdate(ctx, policyResource, "OperatorFailed", metav1.ConditionFalse, "PolicyComparisonFailed",
+			fmt.Sprintf("The comparison between the effective policy [%s] on S3 and its corresponding custom resource on K8S has failed", policyResource.Spec.Name), err)
 	}
 	// If the two match, no reconciliation is needed, but we still need to update
 	// the status, in case the generation changed (eg : rollback to previous state after a problematic change)
 	if matching {
-		SetPolicyStatusCondition(policyResource, "OperatorSucceeded", metav1.ConditionTrue, "PolicyUnchanged",
-			fmt.Sprintf("The policy [%s] matches its corresponding custom resource", policyResource.Spec.Name))
-		if err := r.Status().Update(ctx, policyResource); err != nil {
-			logger.Error(err, "an error occurred while updating the status after comparing the actual and expected configuration for the policy", "policy", policyResource.Spec.Name)
-			return ctrl.Result{}, err
-		}
-		return ctrl.Result{}, nil
+		return r.SetPolicyStatusConditionAndUpdate(ctx, policyResource, "OperatorSucceeded", metav1.ConditionTrue, "PolicyUnchanged",
+			fmt.Sprintf("The policy [%s] matches its corresponding custom resource", policyResource.Spec.Name), nil)
 	}
+
 	// If not we update the policy to match the CR
 	err = r.S3Client.CreateOrUpdatePolicy(policyResource.Spec.Name, policyResource.Spec.PolicyContent)
 	if err != nil {
 		logger.Error(err, "an error occurred while updating the policy", "policy", policyResource.Spec.Name)
-		SetPolicyStatusCondition(policyResource, "OperatorFailed", metav1.ConditionFalse, "PolicyUpdateFailed",
-			fmt.Sprintf("The update of effective policy [%s] on S3 to match its corresponding custom resource on K8S has failed", policyResource.Spec.Name))
-		return ctrl.Result{}, utilerrors.NewAggregate([]error{err, r.Status().Update(ctx, policyResource)})
+		return r.SetPolicyStatusConditionAndUpdate(ctx, policyResource, "OperatorFailed", metav1.ConditionFalse, "PolicyUpdateFailed",
+			fmt.Sprintf("The update of effective policy [%s] on S3 to match its corresponding custom resource on K8S has failed", policyResource.Spec.Name), err)
 	}
 
 	// Update status to reflect policy update
-	SetPolicyStatusCondition(policyResource, "OperatorSucceeded", metav1.ConditionTrue, "PolicyUpdated",
-		fmt.Sprintf("The policy [%s] was updated according to its matching custom resource", policyResource.Spec.Name))
-	if err := r.Status().Update(ctx, policyResource); err != nil {
-		logger.Error(err, "an error occurred while updating the status after updating the policy", "policy", policyResource.Spec.Name)
-		return ctrl.Result{}, err
-	}
-	return ctrl.Result{}, nil
+	return r.SetPolicyStatusConditionAndUpdate(ctx, policyResource, "OperatorSucceeded", metav1.ConditionTrue, "PolicyUpdated",
+		fmt.Sprintf("The policy [%s] was updated according to its matching custom resource", policyResource.Spec.Name), nil)
 }
 
 // SetupWithManager sets up the controller with the Manager.
@@ -181,7 +161,21 @@ func IsPolicyMatchingWithCustomResource(policyResource *s3v1alpha1.Policy, effec
 	return bytes.Equal(buffer.Bytes(), marshalled), nil
 }
 
-func SetPolicyStatusCondition(policyResource *s3v1alpha1.Policy, conditionType string, status metav1.ConditionStatus, reason string, message string) {
+// func SetPolicyStatusCondition(policyResource *s3v1alpha1.Policy, conditionType string, status metav1.ConditionStatus, reason string, message string) {
+// 	meta.SetStatusCondition(&policyResource.Status.Conditions,
+// 		metav1.Condition{
+// 			Type:               conditionType,
+// 			Status:             status,
+// 			Reason:             reason,
+// 			LastTransitionTime: metav1.NewTime(time.Now()),
+// 			Message:            message,
+// 			ObservedGeneration: policyResource.GetGeneration(),
+// 		})
+// }
+
+func (r *PolicyReconciler) SetPolicyStatusConditionAndUpdate(ctx context.Context, policyResource *s3v1alpha1.Policy, conditionType string, status metav1.ConditionStatus, reason string, message string, srcError error) (ctrl.Result, error) {
+	logger := log.FromContext(ctx)
+
 	meta.SetStatusCondition(&policyResource.Status.Conditions,
 		metav1.Condition{
 			Type:               conditionType,
@@ -191,4 +185,11 @@ func SetPolicyStatusCondition(policyResource *s3v1alpha1.Policy, conditionType s
 			Message:            message,
 			ObservedGeneration: policyResource.GetGeneration(),
 		})
+
+	err := r.Status().Update(ctx, policyResource)
+	if err != nil {
+		logger.Error(err, "an error occurred while updating the status of the policy resource")
+		return ctrl.Result{}, utilerrors.NewAggregate([]error{err, srcError})
+	}
+	return ctrl.Result{}, srcError
 }

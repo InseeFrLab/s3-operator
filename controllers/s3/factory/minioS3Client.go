@@ -110,12 +110,12 @@ func (minioS3Client *MinioS3Client) BucketExists(name string) (bool, error) {
 }
 
 func (minioS3Client *MinioS3Client) CreateBucket(name string) error {
-	s3Logger.Info("checking a bucket", "bucket", name)
+	s3Logger.Info("creating bucket", "bucket", name)
 	return minioS3Client.client.MakeBucket(context.Background(), name, minio.MakeBucketOptions{Region: minioS3Client.s3Config.Region})
 }
 
 func (minioS3Client *MinioS3Client) DeleteBucket(name string) error {
-	s3Logger.Info("deleting a bucket", "bucket", name)
+	s3Logger.Info("deleting bucket", "bucket", name)
 	return minioS3Client.client.RemoveBucket(context.Background(), name)
 }
 

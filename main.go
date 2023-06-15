@@ -130,11 +130,11 @@ func main() {
 
 	// For S3 access key and secret key, we first try to read the values from environment variables.
 	// Only if these are not defined do we use the respective flags.
-	var accessKeyFromEnvIfAvailable = os.Getenv("MINIO_ACCESS_KEY")
+	var accessKeyFromEnvIfAvailable = os.Getenv("S3_ACCESS_KEY")
 	if accessKeyFromEnvIfAvailable == "" {
 		accessKeyFromEnvIfAvailable = accessKey
 	}
-	var secretKeyFromEnvIfAvailable = os.Getenv("MINIO_SECRET_KEY")
+	var secretKeyFromEnvIfAvailable = os.Getenv("S3_SECRET_KEY")
 	if secretKeyFromEnvIfAvailable == "" {
 		secretKeyFromEnvIfAvailable = secretKey
 	}

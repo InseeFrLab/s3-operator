@@ -68,13 +68,13 @@ func main() {
 	var metricsAddr string
 	var enableLeaderElection bool
 	var probeAddr string
-	// Var S3
+
+	// S3 related variables
 	var s3EndpointUrl string
 	var accessKey string
 	var secretKey string
 	var region string
 	var s3Provider string
-	// var pathToCa string
 	var useSsl bool
 	var caCertificatesBase64 ArrayFlags
 	var caCertificatesBundlePath string
@@ -84,7 +84,8 @@ func main() {
 	flag.BoolVar(&enableLeaderElection, "leader-elect", false,
 		"Enable leader election for controller manager. "+
 			"Enabling this will ensure there is only one active controller manager.")
-	// Flags S3
+
+	// S3 related flags
 	flag.StringVar(&s3Provider, "s3-provider", "minio", "S3 provider (possible values : minio, mockedS3Provider)")
 	flag.StringVar(&s3EndpointUrl, "s3-endpoint-url", "localhost:9000", "Hostname (or hostname:port) of the S3 server")
 	flag.StringVar(&accessKey, "s3-access-key", "ROOTNAME", "The accessKey of the acount")
@@ -127,8 +128,19 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Création du client S3
-	s3Config := &factory.S3Config{S3Provider: s3Provider, S3UrlEndpoint: s3EndpointUrl, Region: region, AccessKey: accessKey, SecretKey: secretKey, UseSsl: useSsl, CaCertificatesBase64: caCertificatesBase64, CaBundlePath: caCertificatesBundlePath}
+	// For S3 access key and secret key, we first try to read the values from environment variables.
+	// Only if these are not defined do we use the respective flags.
+	var accessKeyFromEnvIfAvailable = os.Getenv("MINIO_ACCESS_KEY")
+	if accessKeyFromEnvIfAvailable == "" {
+		accessKeyFromEnvIfAvailable = accessKey
+	}
+	var secretKeyFromEnvIfAvailable = os.Getenv("MINIO_SECRET_KEY")
+	if secretKeyFromEnvIfAvailable == "" {
+		secretKeyFromEnvIfAvailable = secretKey
+	}
+
+	// Creation of the S3 client
+	s3Config := &factory.S3Config{S3Provider: s3Provider, S3UrlEndpoint: s3EndpointUrl, Region: region, AccessKey: accessKeyFromEnvIfAvailable, SecretKey: secretKeyFromEnvIfAvailable, UseSsl: useSsl, CaCertificatesBase64: caCertificatesBase64, CaBundlePath: caCertificatesBundlePath}
 	s3Client, err := factory.GetS3Client(s3Config.S3Provider, s3Config)
 	if err != nil {
 		// setupLog.Log.Error(err, err.Error())

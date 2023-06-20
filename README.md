@@ -1,10 +1,47 @@
 # s3-operator
-// TODO(user): Add simple overview of use/purpose
+
+This Operator SDK based tool aims at managing S3 related resources (buckets, policies, ...) using a Kubernetes-centric approach. You can set `Bucket` or `Policy` custom resources, and let the operator create or update the corresponding bucket/policy on its configured S3 instance.
+
+## At a glance
+
+- Current S3 providers : [Minio](https://github.com/InseeFrLab/s3-operator/blob/main/controllers/s3/factory/minioS3Client.go) (a [mock](https://github.com/InseeFrLab/s3-operator/blob/main/controllers/s3/factory/mockedS3Client.go) implementation is also present for testing purposes)
+- Currently managed S3 resources : [buckets](https://github.com/InseeFrLab/s3-operator/blob/main/api/v1alpha1/bucket_types.go), [policies](https://github.com/InseeFrLab/s3-operator/blob/main/api/v1alpha1/policy_types.go)
+
+## Compatibility
+
+So far, this operator has been tested with : 
+
+- Kubernetes : 1.25, 1.26
+- MinIO : 2023-05-27T05:56:19Z
 
 ## Description
-// TODO(user): An in-depth paragraph about your project and overview of use
+
+At its heart, the operator revolves around CRDs that match S3 resources : 
+
+- `buckets.s3.onyxia.sh`
+- `policies.s3.onyxia.sh`
+
+The custom resources based on these CRDs are a somewhat simplified projection of the real S3 resources. From the operator's point of view : 
+
+- A `Bucket` CR only has a name, a quota (actually two, more on this below), and optionally, a set of paths
+- A `Policy` CR has a name, and its actual content (IAM JSON)
+
+Each custom resource based on these CRDs on Kubernetes is to be matched with a resource on the S3 instance. If the CR and the corresponding S3 resource diverge, the operator will create or update the S3 resource to bring it back to .
+
+Two important caveats : 
+
+- It is one-way - if something happens on the S3 side directly (instead of going through the CRs), the operator has no way of reacting. At best, the next trigger will overwrite the S3 state with the declared state in the k8s custom resource.
+- For now, the operator won't delete any resource on S3 - if a CR is removed, its matching resource on S3 will still be present. This behavior was primarily picked to avoid data loss for bucket, but also applied to policies - which could be debatable.
+
+---
+```
+NB : the remainder of this README comes from the auto-generated Operator SDK placeholder. As it remains a useful reference, it is left as is until it's replaced by a documentation more accurately focused on this operator.
+```
+---
+
 
 ## Getting Started
+
 You’ll need a Kubernetes cluster to run against. You can use [KIND](https://sigs.k8s.io/kind) to get a local cluster for testing, or run against a remote cluster.
 **Note:** Your controller will automatically use the current context in your kubeconfig file (i.e. whatever cluster `kubectl cluster-info` shows).
 

@@ -120,8 +120,9 @@ spec:
   # This is split over two different parameters, although there is only one actual quota
   #   - "default" is required, and is used as the baseline
   #   - "override" is optional, and as the name implies, takes precedence over "default"
-  # Though clumsy, this pattern (for lack of a better word) allows to easily track the growth
-  # of any given bucket. If this is not useful to you, you can safely skip using "override".
+  # Though clumsy, this pattern (for lack of a better word) allows to easily change the
+  # default quota for every buckets without impacting the ones that might have received
+  # a manual change. If this is not useful to you, you can safely skip using "override".
   quota:
     default: 10000000    
     # override: 20000000

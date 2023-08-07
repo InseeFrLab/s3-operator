@@ -37,7 +37,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	s3v1alpha1 "github.com/inseefrlab/s3-operator/api/v1alpha1"
-	"github.com/inseefrlab/s3-operator/controllers/s3/factory"
+	"github.com/inseefrlab/s3-operator/internal/controller/s3/factory"
 )
 
 // PolicyReconciler reconciles a Policy object

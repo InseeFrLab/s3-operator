@@ -34,8 +34,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	s3v1alpha1 "github.com/inseefrlab/s3-operator/api/v1alpha1"
-	"github.com/inseefrlab/s3-operator/controllers"
-	"github.com/inseefrlab/s3-operator/controllers/s3/factory"
+	"github.com/inseefrlab/s3-operator/internal/controller"
+	"github.com/inseefrlab/s3-operator/internal/controller/s3/factory"
 	//+kubebuilder:scaffold:imports
 )
 

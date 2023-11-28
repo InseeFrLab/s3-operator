@@ -25,6 +25,9 @@ import (
 	// to ensure that exec-entrypoint and run can make use of them.
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
+	s3v1alpha1 "github.com/inseefrlab/s3-operator/api/v1alpha1"
+	controllers "github.com/inseefrlab/s3-operator/internal/controller"
+	"github.com/inseefrlab/s3-operator/internal/controller/s3/factory"
 	"go.uber.org/zap/zapcore"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -32,10 +35,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
-
-	s3v1alpha1 "github.com/inseefrlab/s3-operator/api/v1alpha1"
-	"github.com/inseefrlab/s3-operator/internal/controller"
-	"github.com/inseefrlab/s3-operator/internal/controller/s3/factory"
+	"sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	//+kubebuilder:scaffold:imports
 )
 
@@ -104,10 +104,15 @@ func main() {
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
 
+	// change due to upgrade version to 0.16.2 of sigs.k8s.io/controller-runtime
+	var serverOption = server.Options{
+		BindAddress: metricsAddr,
+	}
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
-		Scheme:                 scheme,
-		MetricsBindAddress:     metricsAddr,
-		Port:                   9443,
+		Scheme:  scheme,
+		Metrics: serverOption,
+		// commented because option format change in ctrl.Options
+		//Port:                   9443,
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElection,
 		LeaderElectionID:       "1402b7b1.onyxia.sh",

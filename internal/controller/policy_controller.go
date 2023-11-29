@@ -23,7 +23,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/minio/madmin-go/v2"
+	"github.com/minio/madmin-go/v3"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"

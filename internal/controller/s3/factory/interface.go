@@ -3,7 +3,7 @@ package factory
 import (
 	"fmt"
 
-	"github.com/minio/madmin-go/v2"
+	"github.com/minio/madmin-go/v3"
 
 	ctrl "sigs.k8s.io/controller-runtime"
 )

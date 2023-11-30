@@ -1,6 +1,6 @@
 module github.com/inseefrlab/s3-operator
 
-go 1.20
+go 1.21
 
 require (
 	github.com/minio/madmin-go/v3 v3.0.34

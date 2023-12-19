@@ -33,8 +33,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
-	s3v1alpha1 "github.com/inseefrlab/s3-operator/api/v1alpha1"
-	"github.com/inseefrlab/s3-operator/internal/controller/s3/factory"
+	s3v1alpha1 "github.com/phlg/s3-operator-downgrade/api/v1alpha1"
+	"github.com/phlg/s3-operator-downgrade/controllers/s3/factory"
 )
 
 // BucketReconciler reconciles a Bucket object
@@ -142,7 +142,7 @@ func (r *BucketReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	// TODO ? : the way this is naively implemented, it's probably costly. Maybe
 	// we can get the "effectiveBucket" (with its quota and paths) once at the beginning,
 	// and iterate on this instead of interrogating the S3 server twice for every path.
-	// But then again, some buckets will likely be filled with many objets outside the
+	// But then again, some buckets will likely be filled with many objects outside the
 	// scope of the CR, so getting all of them might be even more costly.
 	for _, pathInCr := range bucketResource.Spec.Paths {
 		pathExists, err := r.S3Client.PathExists(bucketResource.Spec.Name, pathInCr)

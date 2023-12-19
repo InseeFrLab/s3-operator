@@ -25,9 +25,9 @@ import (
 	// to ensure that exec-entrypoint and run can make use of them.
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
-	s3v1alpha1 "github.com/inseefrlab/s3-operator/api/v1alpha1"
-	controllers "github.com/inseefrlab/s3-operator/internal/controller"
-	"github.com/inseefrlab/s3-operator/internal/controller/s3/factory"
+	s3v1alpha1 "github.com/phlg/s3-operator-downgrade/api/v1alpha1"
+	controllers "github.com/phlg/s3-operator-downgrade/controllers"
+	"github.com/phlg/s3-operator-downgrade/controllers/s3/factory"
 	"go.uber.org/zap/zapcore"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -161,6 +161,14 @@ func main() {
 		S3Client: s3Client,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Bucket")
+		os.Exit(1)
+	}
+	if err = (&controllers.PathReconciler{
+		Client:   mgr.GetClient(),
+		Scheme:   mgr.GetScheme(),
+		S3Client: s3Client,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "Path")
 		os.Exit(1)
 	}
 	if err = (&controllers.PolicyReconciler{

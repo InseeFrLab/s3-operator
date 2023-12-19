@@ -11,8 +11,8 @@ This Operator SDK based tool aims at managing S3 related resources (buckets, pol
 
 This operator has been successfully tested with : 
 
-- Kubernetes : 1.25, 1.26
-- MinIO : 2023-05-27T05:56:19Z
+- Kubernetes : 1.25, 1.26, 1.27
+- MinIO : 2023-05-27T05:56:19Z (up to v0.3.0 included), 2023-11-20T22-40-07Z (from v0.4.0 onwards)
 
 ## Description
 
@@ -20,17 +20,19 @@ At its heart, the operator revolves around CRDs that match S3 resources :
 
 - `buckets.s3.onyxia.sh`
 - `policies.s3.onyxia.sh`
+- `paths.s3.onyxia.sh`
 
 The custom resources based on these CRDs are a somewhat simplified projection of the real S3 resources. From the operator's point of view : 
 
 - A `Bucket` CR matches a S3 bucket, and only has a name, a quota (actually two, [see Bucket example in *Usage* section below](#bucket)), and optionally, a set of paths
 - A `Policy` CR matches a "canned" policy (not a bucket policy, but a global one, that can be attached to a user), and has a name, and its actual content (IAM JSON)
+- A `Path` CR matches a set of paths inside of a policy. This is akin to the `paths` property of the `Bucket` CRD, except `Path` is not responsible for Bucket creation. 
 
 Each custom resource based on these CRDs on Kubernetes is to be matched with a resource on the S3 instance. If the CR and the corresponding S3 resource diverge, the operator will create or update the S3 resource to bring it back to .
 
 Two important caveats : 
 
-- It is one-way - if something happens on the S3 side directly (instead of going through the CRs), the operator ha                      s no way of reacting. At best, the next trigger will overwrite the S3 state with the declared state in the k8s custom resource.
+- It is one-way - if something happens on the S3 side directly (instead of going through the CRs), the operator has no way of reacting. At best, the next trigger will overwrite the S3 state with the declared state in the k8s custom resource.
 - For now, the operator won't delete any resource on S3 - if a CR is removed, its matching resource on S3 will still be present. This behavior was primarily picked to avoid data loss for bucket, but also applied to policies.
 
 ## Installation
@@ -48,7 +50,7 @@ helm install <name> s3-operator --values <yaml-file/url>  # see below for the pa
 
 ### Running from source
 
-Alternatively, if you just wish to try out the operator without actually, it is also possible to just clone this repository, and run the operator locally - outside of the Kubernetes cluster. This requires Go 1.19+ : 
+Alternatively, if you just wish to try out the operator without actually installing it, it is also possible to just clone this repository, and run the operator locally - outside of the Kubernetes cluster. This requires Go 1.19+, and prior installation of the CRDs located in `config/crd/bases`, typically with `kubectl`. After which, you can simply run : 
 
 ```shell
 git clone https://github.com/InseeFrLab/s3-operator.git # or use a tag/release
@@ -56,7 +58,7 @@ cd s3-operator
 go run main.go --s3-endpoint-url *** --s3-access-key *** --s3-secret-key *** # see below for the parameters
 ```
 
-To quote the Operator SDK README (also visible below), running the operator this way *will automatically use the current context in your kubeconfig file (i.e. whatever cluster `kubectl cluster-info` shows).* RBAC-wise, you need to be able to freely manipulate the custom resources associated to the operator (`Bucket` and `Policy`) in every namespace - [see also the generated ClusterRole manifest](https://github.com/InseeFrLab/s3-operator/blob/main/config/rbac/role.yaml).
+To quote the Operator SDK README (also visible below), running the operator this way *will automatically use the current context in your kubeconfig file (i.e. whatever cluster `kubectl cluster-info` shows).* RBAC-wise, you need to be able to freely manipulate the custom resources associated to the operator (`Bucket`, `Policy` and `Path`) in every namespace - [see also the generated ClusterRole manifest](https://github.com/InseeFrLab/s3-operator/blob/main/config/rbac/role.yaml).
 
 ### Kustomize
 
@@ -165,7 +167,30 @@ spec:
       }
       ]
     }
+```
 
+### Path example
+
+```yaml
+apiVersion: s3.onyxia.sh/v1alpha1
+kind: Path
+metadata:
+  labels:
+    app.kubernetes.io/name: path
+    app.kubernetes.io/instance: path-sample
+    app.kubernetes.io/part-of: s3-operator
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/created-by: s3-operator
+  name: path-sample
+spec:
+  # Bucket name (on S3 server, not a Bucket CR's metadata.name)
+  bucketName: shared-bucket
+
+  # Paths to create on the bucket 
+  paths:
+    - /home/alice
+    - /home/bob
+  
 
 ```
 

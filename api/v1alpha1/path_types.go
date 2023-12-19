@@ -23,26 +23,22 @@ import (
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
 
-// BucketSpec defines the desired state of Bucket
-type BucketSpec struct {
+// PathSpec defines the desired state of Path
+type PathSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
 
 	// Name of the bucket
 	// +kubebuilder:validation:Required
-	Name string `json:"name"`
+	BucketName string `json:"bucketName"`
 
 	// Paths (folders) to create inside the bucket
 	// +kubebuilder:validation:Optional
 	Paths []string `json:"paths,omitempty"`
-
-	// Quota to apply to the bucket
-	// +kubebuilder:validation:Required
-	Quota Quota `json:"quota"`
 }
 
-// BucketStatus defines the observed state of Bucket
-type BucketStatus struct {
+// PathStatus defines the observed state of Path
+type PathStatus struct {
 	// Status management using Conditions. 
 	// See also : https://github.com/kubernetes/community/blob/master/contributors/devel/sig-architecture/api-conventions.md#typical-status-properties
 	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type"`
@@ -51,34 +47,24 @@ type BucketStatus struct {
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
 
-// Bucket is the Schema for the buckets API
-type Bucket struct {
+// Path is the Schema for the paths API
+type Path struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   BucketSpec   `json:"spec,omitempty"`
-	Status BucketStatus `json:"status,omitempty"`
+	Spec   PathSpec   `json:"spec,omitempty"`
+	Status PathStatus `json:"status,omitempty"`
 }
 
 //+kubebuilder:object:root=true
 
-// BucketList contains a list of Bucket
-type BucketList struct {
+// PathList contains a list of Path
+type PathList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []Bucket `json:"items"`
+	Items           []Path `json:"items"`
 }
 
 func init() {
-	SchemeBuilder.Register(&Bucket{}, &BucketList{})
-}
-
-type Quota struct {
-	// Default quota to apply, mandatory
-	// +kubebuilder:validation:Required
-	Default int64 `json:"default"`
-
-	// Optional override quota, to be used by cluster admin.
-	// +kubebuilder:validation:Optional
-	Override int64 `json:"override,omitempty"`
+	SchemeBuilder.Register(&Path{}, &PathList{})
 }

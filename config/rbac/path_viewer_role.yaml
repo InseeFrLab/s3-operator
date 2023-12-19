@@ -1,0 +1,27 @@
+# permissions for end users to view paths.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/name: clusterrole
+    app.kubernetes.io/instance: path-viewer-role
+    app.kubernetes.io/component: rbac
+    app.kubernetes.io/created-by: s3-operator
+    app.kubernetes.io/part-of: s3-operator
+    app.kubernetes.io/managed-by: kustomize
+  name: path-viewer-role
+rules:
+- apiGroups:
+  - s3.onyxia.sh
+  resources:
+  - paths
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - s3.onyxia.sh
+  resources:
+  - paths/status
+  verbs:
+  - get

@@ -26,9 +26,9 @@ import (
 	// to ensure that exec-entrypoint and run can make use of them.
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
-	s3v1alpha1 "github.com/phlg/s3-operator-downgrade/api/v1alpha1"
-	controllers "github.com/phlg/s3-operator-downgrade/controllers"
-	"github.com/phlg/s3-operator-downgrade/controllers/s3/factory"
+	s3v1alpha1 "github.com/InseeFrLab/s3-operator/api/v1alpha1"
+	controllers "github.com/InseeFrLab/s3-operator/controllers"
+	"github.com/InseeFrLab/s3-operator/controllers/s3/factory"
 	"go.uber.org/zap/zapcore"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"

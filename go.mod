@@ -1,4 +1,4 @@
-module github.com/phlg/s3-operator-downgrade
+module github.com/InseeFrLab/s3-operator
 
 go 1.21
 

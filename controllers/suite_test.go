@@ -30,7 +30,7 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
-	s3onyxiashv1alpha1 "github.com/phlg/s3-operator-downgrade/api/v1alpha1"
+	s3onyxiashv1alpha1 "github.com/InseeFrLab/s3-operator/api/v1alpha1"
 	//+kubebuilder:scaffold:imports
 )
 

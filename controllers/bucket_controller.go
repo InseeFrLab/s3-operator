@@ -19,7 +19,6 @@ package controllers
 import (
 	"context"
 	"fmt"
-	"strconv"
 	"time"
 
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -41,8 +40,9 @@ import (
 // BucketReconciler reconciles a Bucket object
 type BucketReconciler struct {
 	client.Client
-	Scheme   *runtime.Scheme
-	S3Client factory.S3Client
+	Scheme         *runtime.Scheme
+	S3Client       factory.S3Client
+	BucketDeletion bool
 }
 
 //+kubebuilder:rbac:groups=s3.onyxia.sh,resources=buckets,verbs=get;list;watch;create;update;patch;delete
@@ -171,7 +171,6 @@ func (r *BucketReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 
 // SetupWithManager sets up the controller with the Manager.*
 func (r *BucketReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	logger := ctrl.Log.WithName("setupWithManager")
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&s3v1alpha1.Bucket{}).
 		// TODO : implement a real strategy for event filtering ; for now just using the example from OpSDK doc
@@ -179,13 +178,10 @@ func (r *BucketReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		WithEventFilter(predicate.Funcs{
 			UpdateFunc: func(e event.UpdateEvent) bool {
 				// Ignore updates to CR status in which case metadata.Generation does not change
-				logger.Info("Passage dans UpdateFunc ; is predicate true ? ")
-				logger.Info(strconv.FormatBool(e.ObjectOld.GetGeneration() != e.ObjectNew.GetGeneration()))
 				return e.ObjectOld.GetGeneration() != e.ObjectNew.GetGeneration()
 			},
 			DeleteFunc: func(e event.DeleteEvent) bool {
 				// Evaluates to false if the object has been confirmed deleted.
-				logger.Info("Passage dans DeleteFunc")
 				return !e.DeleteStateUnknown
 			},
 		}).

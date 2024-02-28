@@ -152,6 +152,16 @@ func (minioS3Client *MinioS3Client) PathExists(bucketname string, path string) (
 	return true, nil
 }
 
+func (minioS3Client *MinioS3Client) DeletePath(bucketname string, path string) error {
+	s3Logger.Info("deleting a path on a bucket", "bucket", bucketname, "path", path)
+	err := minioS3Client.client.RemoveObject(context.Background(), bucketname, "/"+path+"/.keep", minio.RemoveObjectOptions{ForceDelete: true})
+	if err != nil {
+		s3Logger.Error(err, "an error occurred during path creation on bucket", "bucket", bucketname, "path", path)
+		return err
+	}
+	return nil
+}
+
 // /////////////////
 // Quota methods //
 // /////////////////
@@ -212,4 +222,9 @@ func (minioS3Client *MinioS3Client) GetPolicyInfo(name string) (*madmin.PolicyIn
 func (minioS3Client *MinioS3Client) CreateOrUpdatePolicy(name string, content string) error {
 	s3Logger.Info("create or update policy", "policy", name)
 	return minioS3Client.adminClient.AddCannedPolicy(context.Background(), name, []byte(content))
+}
+
+func (minioS3Client *MinioS3Client) DeletePolicy(name string) error {
+	s3Logger.Info("delete policy", "policy", name)
+	return minioS3Client.adminClient.RemoveCannedPolicy(context.Background(), name)
 }

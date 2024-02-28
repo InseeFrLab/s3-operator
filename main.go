@@ -25,9 +25,9 @@ import (
 	// to ensure that exec-entrypoint and run can make use of them.
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
-	s3v1alpha1 "github.com/phlg/s3-operator-downgrade/api/v1alpha1"
-	controllers "github.com/phlg/s3-operator-downgrade/controllers"
-	"github.com/phlg/s3-operator-downgrade/controllers/s3/factory"
+	s3v1alpha1 "github.com/InseeFrLab/s3-operator/api/v1alpha1"
+	controllers "github.com/InseeFrLab/s3-operator/controllers"
+	"github.com/InseeFrLab/s3-operator/controllers/s3/factory"
 	"go.uber.org/zap/zapcore"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -78,6 +78,9 @@ func main() {
 	var useSsl bool
 	var caCertificatesBase64 ArrayFlags
 	var caCertificatesBundlePath string
+	var bucketDeletion bool
+	var policyDeletion bool
+	var pathDeletion bool
 
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
@@ -94,6 +97,9 @@ func main() {
 	flag.StringVar(&caCertificatesBundlePath, "s3-ca-certificate-bundle-path", "", "(Optional) Path to a CA certificate file, for https requests to S3")
 	flag.StringVar(&region, "region", "us-east-1", "The region to configure for the S3 client")
 	flag.BoolVar(&useSsl, "useSsl", true, "Use of SSL/TLS to connect to the S3 endpoint")
+	flag.BoolVar(&bucketDeletion, "bucket-deletion", false, "Trigger bucket deletion on the S3 backend upon CR deletion. Will fail if bucket is not empty.")
+	flag.BoolVar(&policyDeletion, "policy-deletion", false, "Trigger policy deletion on the S3 backend upon CR deletion")
+	flag.BoolVar(&pathDeletion, "path-deletion", false, "Trigger path deletion on the S3 backend upon CR deletion. Limited to deleting the `.keep` files used by the operator.")
 
 	opts := zap.Options{
 		Development: true,
@@ -108,6 +114,7 @@ func main() {
 	var serverOption = server.Options{
 		BindAddress: metricsAddr,
 	}
+
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:  scheme,
 		Metrics: serverOption,
@@ -116,6 +123,10 @@ func main() {
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElection,
 		LeaderElectionID:       "1402b7b1.onyxia.sh",
+		// To change the sync period, it's possible to use cache.Options()
+		// Caveat : the actual period is slightly longer than what configured,
+		// possibly because of cache expiration not accounted for ?
+		// Cache:                  cache.Options{SyncPeriod: 2 * time.Minute},
 		// LeaderElectionReleaseOnCancel defines if the leader should step down voluntarily
 		// when the Manager ends. This requires the binary to immediately end when the
 		// Manager is stopped, otherwise, this setting is unsafe. Setting this significantly
@@ -156,25 +167,28 @@ func main() {
 	}
 
 	if err = (&controllers.BucketReconciler{
-		Client:   mgr.GetClient(),
-		Scheme:   mgr.GetScheme(),
-		S3Client: s3Client,
+		Client:         mgr.GetClient(),
+		Scheme:         mgr.GetScheme(),
+		S3Client:       s3Client,
+		BucketDeletion: bucketDeletion,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Bucket")
 		os.Exit(1)
 	}
 	if err = (&controllers.PathReconciler{
-		Client:   mgr.GetClient(),
-		Scheme:   mgr.GetScheme(),
-		S3Client: s3Client,
+		Client:       mgr.GetClient(),
+		Scheme:       mgr.GetScheme(),
+		S3Client:     s3Client,
+		PathDeletion: pathDeletion,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Path")
 		os.Exit(1)
 	}
 	if err = (&controllers.PolicyReconciler{
-		Client:   mgr.GetClient(),
-		Scheme:   mgr.GetScheme(),
-		S3Client: s3Client,
+		Client:         mgr.GetClient(),
+		Scheme:         mgr.GetScheme(),
+		S3Client:       s3Client,
+		PolicyDeletion: policyDeletion,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Policy")
 		os.Exit(1)

@@ -18,12 +18,14 @@ type S3Client interface {
 	DeleteBucket(name string) error
 	CreatePath(bucketname string, path string) error
 	PathExists(bucketname string, path string) (bool, error)
+	DeletePath(bucketname string, path string) error
 	GetQuota(name string) (int64, error)
 	SetQuota(name string, quota int64) error
 	// see comment in [minioS3Client.go] regarding the absence of a PolicyExists method
 	// PolicyExists(name string) (bool, error)
 	GetPolicyInfo(name string) (*madmin.PolicyInfo, error)
 	CreateOrUpdatePolicy(name string, content string) error
+	DeletePolicy(name string) error
 }
 
 type S3Config struct {

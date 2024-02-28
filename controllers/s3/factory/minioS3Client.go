@@ -114,6 +114,7 @@ func (minioS3Client *MinioS3Client) CreateBucket(name string) error {
 	return minioS3Client.client.MakeBucket(context.Background(), name, minio.MakeBucketOptions{Region: minioS3Client.s3Config.Region})
 }
 
+// Will fail if bucket is not empty
 func (minioS3Client *MinioS3Client) DeleteBucket(name string) error {
 	s3Logger.Info("deleting bucket", "bucket", name)
 	return minioS3Client.client.RemoveBucket(context.Background(), name)
@@ -150,6 +151,16 @@ func (minioS3Client *MinioS3Client) PathExists(bucketname string, path string) (
 	}
 
 	return true, nil
+}
+
+func (minioS3Client *MinioS3Client) DeletePath(bucketname string, path string) error {
+	s3Logger.Info("deleting a path on a bucket", "bucket", bucketname, "path", path)
+	err := minioS3Client.client.RemoveObject(context.Background(), bucketname, "/"+path+"/.keep", minio.RemoveObjectOptions{})
+	if err != nil {
+		s3Logger.Error(err, "an error occurred during path deletion on bucket", "bucket", bucketname, "path", path)
+		return err
+	}
+	return nil
 }
 
 // /////////////////
@@ -212,4 +223,9 @@ func (minioS3Client *MinioS3Client) GetPolicyInfo(name string) (*madmin.PolicyIn
 func (minioS3Client *MinioS3Client) CreateOrUpdatePolicy(name string, content string) error {
 	s3Logger.Info("create or update policy", "policy", name)
 	return minioS3Client.adminClient.AddCannedPolicy(context.Background(), name, []byte(content))
+}
+
+func (minioS3Client *MinioS3Client) DeletePolicy(name string) error {
+	s3Logger.Info("delete policy", "policy", name)
+	return minioS3Client.adminClient.RemoveCannedPolicy(context.Background(), name)
 }

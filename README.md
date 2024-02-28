@@ -82,7 +82,10 @@ The parameters are summarized in the table below :
 | `s3-endpoint-url`               | `localhost:9000` | -                    | no  | Hostname (or hostname:port) of the S3 server.
 | `s3-provider`                   | `minio`          | -                    | no  | S3 provider (possible values : `minio`, `mockedS3Provider`)
 | `s3-secret-key`                 | -                | `S3_SECRET_KEY`      | no  | The secret key used to interact with  the S3 server.
-| `useSsl`                        | `true`           | -                    | no  | Use of SSL/TLS to connect to the S3 server
+| `useSsl`                        | true             | -                    | no  | Use of SSL/TLS to connect to the S3 server
+| `bucket-deletion`               | false            | -                    | no  | Trigger bucket deletion on the S3 backend upon CR deletion. Will fail if bucket is not empty.
+| `policy-deletion`               | false            | -                    | no  | Trigger policy deletion on the S3 backend upon CR deletion
+| `path-deletion`                 | false            | -                    | no  | Trigger path deletion on the S3 backend upon CR deletion. Limited to deleting the `.keep` files used by the operator.
 
 
 ## Usage

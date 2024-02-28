@@ -31,6 +31,11 @@ func (mockedS3Provider *MockedS3Client) PathExists(bucketname string, path strin
 	return true, nil
 }
 
+func (mockedS3Provider *MockedS3Client) DeletePath(bucketname string, path string) error {
+	s3Logger.Info("deleting a path on a bucket", "bucket", bucketname, "path", path)
+	return nil
+}
+
 func (mockedS3Provider *MockedS3Client) GetQuota(name string) (int64, error) {
 	s3Logger.Info("getting quota on bucket", "bucket", name)
 	return 1, nil
@@ -48,6 +53,11 @@ func (mockedS3Provider *MockedS3Client) GetPolicyInfo(name string) (*madmin.Poli
 
 func (mockedS3Provider *MockedS3Client) CreateOrUpdatePolicy(name string, content string) error {
 	s3Logger.Info("create or update policy", "policy", name, "policyContent", content)
+	return nil
+}
+
+func (mockedS3Provider *MockedS3Client) DeletePolicy(name string) error {
+	s3Logger.Info("delete policy", "policy", name)
 	return nil
 }
 

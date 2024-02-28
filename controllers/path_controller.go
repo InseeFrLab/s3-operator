@@ -28,6 +28,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
@@ -48,35 +49,84 @@ type PathReconciler struct {
 //+kubebuilder:rbac:groups=s3.onyxia.sh,resources=paths/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=s3.onyxia.sh,resources=paths/finalizers,verbs=update
 
+const pathFinalizer = "s3.onyxia.sh/finalizer"
+
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
 //
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.14.1/pkg/reconcile
 func (r *PathReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	logger := log.FromContext(ctx)
+	errorLogger := log.FromContext(ctx)
+	logger := ctrl.Log.WithName("pathReconcile")
 
+	// Checking for path resource existence
 	pathResource := &s3v1alpha1.Path{}
 	err := r.Get(ctx, req.NamespacedName, pathResource)
 	if err != nil {
 		if errors.IsNotFound(err) {
-			logger.Info(fmt.Sprintf("Path CRD %s has been removed. NOOP", req.Name))
+			logger.Info("The Path custom resource has been removed ; as such the Path controller is NOOP.", "req.Name", req.Name)
 			return ctrl.Result{}, nil
 		}
+		errorLogger.Error(err, "An error occurred when attempting to read the Path resource from the Kubernetes cluster")
 		return ctrl.Result{}, err
 	}
+
+	// Managing path deletion with a finalizer
+	// REF : https://sdk.operatorframework.io/docs/building-operators/golang/advanced-topics/#external-resources
+	isMarkedForDeletion := pathResource.GetDeletionTimestamp() != nil
+	if isMarkedForDeletion {
+		if controllerutil.ContainsFinalizer(pathResource, pathFinalizer) {
+			// Run finalization logic for pathFinalizer. If the
+			// finalization logic fails, don't remove the finalizer so
+			// that we can retry during the next reconciliation.
+			if err := r.finalizePath(pathResource); err != nil {
+				// return ctrl.Result{}, err
+				errorLogger.Error(err, "an error occurred when attempting to finalize the path", "path", pathResource.Name)
+				// return ctrl.Result{}, err
+				return r.SetPathStatusConditionAndUpdate(ctx, pathResource, "OperatorFailed", metav1.ConditionFalse, "PathFinalizeFailed",
+					fmt.Sprintf("An error occurred when attempting to delete path [%s]", pathResource.Name), err)
+			}
+
+			// Remove pathFinalizer. Once all finalizers have been
+			// removed, the object will be deleted.
+			controllerutil.RemoveFinalizer(pathResource, pathFinalizer)
+			err := r.Update(ctx, pathResource)
+			if err != nil {
+				errorLogger.Error(err, "an error occurred when removing finalizer from path", "path", pathResource.Name)
+				// return ctrl.Result{}, err
+				return r.SetPathStatusConditionAndUpdate(ctx, pathResource, "OperatorFailed", metav1.ConditionFalse, "PathFinalizerRemovalFailed",
+					fmt.Sprintf("An error occurred when attempting to remove the finalizer from path [%s]", pathResource.Name), err)
+			}
+		}
+		return ctrl.Result{}, nil
+	}
+
+	// Add finalizer for this CR
+	if !controllerutil.ContainsFinalizer(pathResource, pathFinalizer) {
+		controllerutil.AddFinalizer(pathResource, pathFinalizer)
+		err = r.Update(ctx, pathResource)
+		if err != nil {
+			errorLogger.Error(err, "an error occurred when adding finalizer from path", "path", pathResource.Name)
+			// return ctrl.Result{}, err
+			return r.SetPathStatusConditionAndUpdate(ctx, pathResource, "OperatorFailed", metav1.ConditionFalse, "PathFinalizerAddFailed",
+				fmt.Sprintf("An error occurred when attempting to add the finalizer from path [%s]", pathResource.Name), err)
+		}
+	}
+
+	// Path lifecycle management (other than deletion) starts here
 
 	// Check bucket existence on the S3 server
 	bucketFound, err := r.S3Client.BucketExists(pathResource.Spec.BucketName)
 	if err != nil {
-		logger.Error(err, "an error occurred while checking the existence of a bucket", "bucket", pathResource.Spec.BucketName)
+		errorLogger.Error(err, "an error occurred while checking the existence of a bucket", "bucket", pathResource.Spec.BucketName)
 		return r.SetPathStatusConditionAndUpdate(ctx, pathResource, "OperatorFailed", metav1.ConditionFalse, "BucketExistenceCheckFailed",
 			fmt.Sprintf("Checking existence of bucket [%s] from S3 instance has failed", pathResource.Spec.BucketName), err)
 	}
 
 	// If bucket does not exist, the Path CR should be in a failing state
 	if !bucketFound {
-		logger.Error(err, "the path CR references a non-existing bucket", "pathCr", pathResource.Name, "bucket", pathResource.Spec.BucketName)
+		errorLogger.Error(err, "the path CR references a non-existing bucket", "pathCr", pathResource.Name, "bucket", pathResource.Spec.BucketName)
 		return r.SetPathStatusConditionAndUpdate(ctx, pathResource, "OperatorFailed", metav1.ConditionFalse, "ReferencingNonExistingBucket",
 			fmt.Sprintf("The Path CR [%s] references a non-existing bucket [%s]", pathResource.Name, pathResource.Spec.BucketName), err)
 	}
@@ -92,7 +142,7 @@ func (r *PathReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	for _, pathInCr := range pathResource.Spec.Paths {
 		pathExists, err := r.S3Client.PathExists(pathResource.Spec.BucketName, pathInCr)
 		if err != nil {
-			logger.Error(err, "an error occurred while checking a path's existence on a bucket", "bucket", pathResource.Spec.BucketName, "path", pathInCr)
+			errorLogger.Error(err, "an error occurred while checking a path's existence on a bucket", "bucket", pathResource.Spec.BucketName, "path", pathInCr)
 			return r.SetPathStatusConditionAndUpdate(ctx, pathResource, "OperatorFailed", metav1.ConditionFalse, "PathCheckFailed",
 				fmt.Sprintf("The check for path [%s] on bucket [%s] has failed", pathInCr, pathResource.Spec.BucketName), err)
 		}
@@ -100,7 +150,7 @@ func (r *PathReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 		if !pathExists {
 			err = r.S3Client.CreatePath(pathResource.Spec.BucketName, pathInCr)
 			if err != nil {
-				logger.Error(err, "an error occurred while creating a path on a bucket", "bucket", pathResource.Spec.BucketName, "path", pathInCr)
+				errorLogger.Error(err, "an error occurred while creating a path on a bucket", "bucket", pathResource.Spec.BucketName, "path", pathInCr)
 				return r.SetPathStatusConditionAndUpdate(ctx, pathResource, "OperatorFailed", metav1.ConditionFalse, "PathCreationFailed",
 					fmt.Sprintf("The creation of path [%s] on bucket [%s] has failed", pathInCr, pathResource.Spec.BucketName), err)
 			}
@@ -115,9 +165,10 @@ func (r *PathReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *PathReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	logger := ctrl.Log.WithName("eventFilter")
+	logger := ctrl.Log.WithName("pathEventFilter")
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&s3v1alpha1.Path{}).
+		// REF : https://sdk.operatorframework.io/docs/building-operators/golang/references/event-filtering/
 		WithEventFilter(predicate.Funcs{
 			UpdateFunc: func(e event.UpdateEvent) bool {
 				// Only reconcile if :
@@ -159,6 +210,24 @@ func (r *PathReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
+func (r *PathReconciler) finalizePath(pathResource *s3v1alpha1.Path) error {
+	if r.PathDeletion {
+		var err error
+		var failedPaths []string = make([]string, 0)
+		for _, path := range pathResource.Spec.Paths {
+			err = r.S3Client.DeletePath(pathResource.Spec.BucketName, path)
+			if err != nil {
+				failedPaths = append(failedPaths, path)
+			}
+		}
+
+		if len(failedPaths) > 0 {
+			return fmt.Errorf("At least one path couldn't be removed from S3 backend", "failedPaths", failedPaths)
+		}
+	}
+	return nil
+}
+
 func (r *PathReconciler) SetPathStatusConditionAndUpdate(ctx context.Context, pathResource *s3v1alpha1.Path, conditionType string, status metav1.ConditionStatus, reason string, message string, srcError error) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 
@@ -185,7 +254,7 @@ func (r *PathReconciler) SetPathStatusConditionAndUpdate(ctx context.Context, pa
 
 	err := r.Status().Update(ctx, pathResource)
 	if err != nil {
-		logger.Error(err, "an error occurred while updating the status of the bucket resource")
+		logger.Error(err, "an error occurred while updating the status of the path resource")
 		return ctrl.Result{}, utilerrors.NewAggregate([]error{err, srcError})
 	}
 	return ctrl.Result{}, srcError

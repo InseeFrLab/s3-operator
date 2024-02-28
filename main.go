@@ -97,9 +97,9 @@ func main() {
 	flag.StringVar(&caCertificatesBundlePath, "s3-ca-certificate-bundle-path", "", "(Optional) Path to a CA certificate file, for https requests to S3")
 	flag.StringVar(&region, "region", "us-east-1", "The region to configure for the S3 client")
 	flag.BoolVar(&useSsl, "useSsl", true, "Use of SSL/TLS to connect to the S3 endpoint")
-	flag.BoolVar(&bucketDeletion, "bucket-deletion", false, "Trigger bucket deletion on the S3 backend upon CR deletion (:warning: implies data loss)")
+	flag.BoolVar(&bucketDeletion, "bucket-deletion", false, "Trigger bucket deletion on the S3 backend upon CR deletion. Will fail if bucket is not empty.")
 	flag.BoolVar(&policyDeletion, "policy-deletion", false, "Trigger policy deletion on the S3 backend upon CR deletion")
-	flag.BoolVar(&pathDeletion, "path-deletion", false, "Trigger path deletion on the S3 backend upon CR deletion (:warning: implies data loss)")
+	flag.BoolVar(&pathDeletion, "path-deletion", false, "Trigger path deletion on the S3 backend upon CR deletion. Limited to deleting the `.keep` files used by the operator.")
 
 	opts := zap.Options{
 		Development: true,

@@ -83,3 +83,29 @@ rules:
   - get
   - patch
   - update
+- apiGroups:
+  - s3.onyxia.sh
+  resources:
+  - user
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - s3.onyxia.sh
+  resources:
+  - user/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - s3.onyxia.sh
+  resources:
+  - user/status
+  verbs:
+  - get
+  - patch
+  - update

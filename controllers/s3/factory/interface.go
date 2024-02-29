@@ -24,6 +24,9 @@ type S3Client interface {
 	// PolicyExists(name string) (bool, error)
 	GetPolicyInfo(name string) (*madmin.PolicyInfo, error)
 	CreateOrUpdatePolicy(name string, content string) error
+	UserExist(name string) (bool, error)
+	CreateUser(name string, password string) error
+	AddServiceAccountForUser(name string, accessKey string, secretKey string) error
 }
 
 type S3Config struct {

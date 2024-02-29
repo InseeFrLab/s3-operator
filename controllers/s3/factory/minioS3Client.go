@@ -213,3 +213,47 @@ func (minioS3Client *MinioS3Client) CreateOrUpdatePolicy(name string, content st
 	s3Logger.Info("create or update policy", "policy", name)
 	return minioS3Client.adminClient.AddCannedPolicy(context.Background(), name, []byte(content))
 }
+
+func (minioS3Client *MinioS3Client) CreateUser(name string, password string) error {
+	s3Logger.Info("Creating user", "user", name)
+	err := minioS3Client.adminClient.AddUser(context.Background(), name, password)
+	if err != nil {
+		s3Logger.Error(err, "Error while creating user", "user", name)
+		return err
+	}
+	return nil
+}
+
+func (minioS3Client *MinioS3Client) AddServiceAccountForUser(name string, accessKey string, secretKey string) error {
+	s3Logger.Info("Adding service account for user", "user", name)
+
+	opts := madmin.AddServiceAccountReq{
+		AccessKey:   accessKey,
+		SecretKey:   secretKey,
+		Name:        accessKey,
+		Description: "",
+		TargetUser:  name,
+	}
+
+	_, err := minioS3Client.adminClient.AddServiceAccount(context.Background(), opts)
+	if err != nil {
+		s3Logger.Error(err, "Error while creating service account for user", "user", name)
+		return err
+	}
+
+	return nil
+
+}
+
+func (minioS3Client *MinioS3Client) UserExist(name string) (bool, error) {
+	s3Logger.Info("checking user existence", "user", name)
+	_, _err := minioS3Client.adminClient.GetUserInfo(context.Background(), name)
+	if _err != nil {
+		if minio.ToErrorResponse(_err).Code == "XMinioAdminNoSuchUser" {
+			return false, nil
+		}
+		return false, _err
+
+	}
+	return true, nil
+}

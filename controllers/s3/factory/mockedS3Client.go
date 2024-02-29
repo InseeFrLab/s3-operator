@@ -51,6 +51,20 @@ func (mockedS3Provider *MockedS3Client) CreateOrUpdatePolicy(name string, conten
 	return nil
 }
 
+func (minioS3Client *MockedS3Client) CreateUser(name string, password string) error {
+	s3Logger.Info("create or update user", "user", name)
+	return nil
+}
+
+func (minioS3Client *MockedS3Client) UserExist(name string) (bool, error) {
+	return true, nil
+}
+
+func (minioS3Client *MockedS3Client) AddServiceAccountForUser(name string, accessKey string, secretKey string) error {
+	s3Logger.Info("Adding service account for user", "user", name)
+	return nil
+}
+
 func newMockedS3Client() *MockedS3Client {
 	return &MockedS3Client{}
 }

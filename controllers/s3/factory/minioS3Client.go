@@ -6,8 +6,10 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
+	"fmt"
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/minio/madmin-go/v3"
 	"github.com/minio/minio-go/v7"
@@ -35,6 +37,33 @@ func newMinioS3Client(S3Config *S3Config) *MinioS3Client {
 	// - https://pkg.go.dev/net/http#RoundTripper
 	// - https://youngkin.github.io/post/gohttpsclientserver/#create-the-client
 	// - https://forfuncsake.github.io/post/2017/08/trust-extra-ca-cert-in-go-app/
+	// Appending content directly, from a base64-encoded, PEM format CA certificate
+	// Variant : if S3Config.CaBundlePath was a string[]
+	// for _, caCertificateFilePath := range S3Config.S3Config.CaBundlePaths {
+	// 	caCert, err := os.ReadFile(caCertificateFilePath)
+	// 	if err != nil {
+	// 		log.Fatalf("Error opening CA cert file %s, Error: %s", caCertificateFilePath, err)
+	// 	}
+	// 	rootCAs.AppendCertsFromPEM([]byte(caCert))
+	// }
+	addTransportOptions(S3Config, minioOptions)
+
+	minioClient, err := minio.New(S3Config.S3UrlEndpoint, minioOptions)
+	if err != nil {
+		s3Logger.Error(err, "an error occurred while creating a new minio client")
+	}
+
+	adminClient, err := madmin.New(S3Config.S3UrlEndpoint, S3Config.AccessKey, S3Config.SecretKey, S3Config.UseSsl)
+	if err != nil {
+		s3Logger.Error(err, "an error occurred while creating a new minio admin client")
+	}
+	// Getting the custom root CA (if any) from the "regular" client's Transport
+	adminClient.SetCustomTransport(minioOptions.Transport)
+
+	return &MinioS3Client{*S3Config, *minioClient, *adminClient}
+}
+
+func addTransportOptions(S3Config *S3Config, minioOptions *minio.Options) {
 	if len(S3Config.CaCertificatesBase64) > 0 {
 
 		rootCAs, _ := x509.SystemCertPool()
@@ -42,7 +71,6 @@ func newMinioS3Client(S3Config *S3Config) *MinioS3Client {
 			rootCAs = x509.NewCertPool()
 		}
 
-		// Appending content directly, from a base64-encoded, PEM format CA certificate
 		for _, caCertificateBase64 := range S3Config.CaCertificatesBase64 {
 			decodedCaCertificate, err := base64.StdEncoding.DecodeString(caCertificateBase64)
 			if err != nil {
@@ -70,35 +98,12 @@ func newMinioS3Client(S3Config *S3Config) *MinioS3Client {
 		}
 		rootCAs.AppendCertsFromPEM([]byte(caCert))
 
-		// Variant : if S3Config.CaBundlePath was a string[]
-		// for _, caCertificateFilePath := range S3Config.S3Config.CaBundlePaths {
-		// 	caCert, err := os.ReadFile(caCertificateFilePath)
-		// 	if err != nil {
-		// 		log.Fatalf("Error opening CA cert file %s, Error: %s", caCertificateFilePath, err)
-		// 	}
-		// 	rootCAs.AppendCertsFromPEM([]byte(caCert))
-		// }
-
 		minioOptions.Transport = &http.Transport{
 			TLSClientConfig: &tls.Config{
 				RootCAs: rootCAs,
 			},
 		}
 	}
-
-	minioClient, err := minio.New(S3Config.S3UrlEndpoint, minioOptions)
-	if err != nil {
-		s3Logger.Error(err, "an error occurred while creating a new minio client")
-	}
-
-	adminClient, err := madmin.New(S3Config.S3UrlEndpoint, S3Config.AccessKey, S3Config.SecretKey, S3Config.UseSsl)
-	if err != nil {
-		s3Logger.Error(err, "an error occurred while creating a new minio admin client")
-	}
-	// Getting the custom root CA (if any) from the "regular" client's Transport
-	adminClient.SetCustomTransport(minioOptions.Transport)
-
-	return &MinioS3Client{*S3Config, *minioClient, *adminClient}
 }
 
 // //////////////////
@@ -225,7 +230,137 @@ func (minioS3Client *MinioS3Client) CreateOrUpdatePolicy(name string, content st
 	return minioS3Client.adminClient.AddCannedPolicy(context.Background(), name, []byte(content))
 }
 
+func (minioS3Client *MinioS3Client) PolicyExist(name string) (bool, error) {
+	s3Logger.Info("checking policy existence", "policy", name)
+	policies, err := minioS3Client.adminClient.ListPolicies(context.Background(), name)
+	if err != nil {
+		return false, err
+	}
+	filteredPolicies := []string{}
+	for i := 0; i < len(policies); i++ {
+		if policies[i].Name == name {
+			filteredPolicies = append(filteredPolicies, name)
+		}
+	}
+	return len(filteredPolicies) > 0, nil
+}
+
 func (minioS3Client *MinioS3Client) DeletePolicy(name string) error {
 	s3Logger.Info("delete policy", "policy", name)
 	return minioS3Client.adminClient.RemoveCannedPolicy(context.Background(), name)
+}
+
+////////////////////
+// USER   methods //
+////////////////////
+
+func (minioS3Client *MinioS3Client) CreateUser(name string, password string) error {
+	s3Logger.Info("Creating user", "user", name)
+	err := minioS3Client.adminClient.AddUser(context.Background(), name, password)
+	if err != nil {
+		s3Logger.Error(err, "Error while creating user", "user", name)
+		return err
+	}
+	return nil
+}
+
+func (minioS3Client *MinioS3Client) AddServiceAccountForUser(name string, accessKey string, secretKey string) error {
+	s3Logger.Info("Adding service account for user", "user", name)
+
+	opts := madmin.AddServiceAccountReq{
+		AccessKey:   accessKey,
+		SecretKey:   secretKey,
+		Name:        accessKey,
+		Description: "",
+		TargetUser:  name,
+	}
+
+	_, err := minioS3Client.adminClient.AddServiceAccount(context.Background(), opts)
+	if err != nil {
+		s3Logger.Error(err, "Error while creating service account for user", "user", name)
+		return err
+	}
+
+	return nil
+
+}
+
+func (minioS3Client *MinioS3Client) UserExist(name string) (bool, error) {
+	s3Logger.Info("checking user existence", "user", name)
+	_, _err := minioS3Client.adminClient.GetUserInfo(context.Background(), name)
+	if _err != nil {
+		s3Logger.Info("received code", "user", minio.ToErrorResponse(_err))
+		if minio.ToErrorResponse(_err).StatusCode == 0 {
+			return false, nil
+		}
+		return false, _err
+	}
+	return true, nil
+}
+
+func (minioS3Client *MinioS3Client) DeleteUser(name string) error {
+	s3Logger.Info("delete user", "user", name)
+	return minioS3Client.adminClient.RemoveUser(context.Background(), name)
+}
+
+func (minioS3Client *MinioS3Client) GetUserPolicies(name string) ([]string, error) {
+	s3Logger.Info("Get user policies", "user", name)
+	userInfo, err := minioS3Client.adminClient.GetUserInfo(context.Background(), name)
+	if err != nil {
+		s3Logger.Error(err, "Error when getting userInfo")
+
+		return []string{}, err
+	}
+	return strings.Split(userInfo.PolicyName, ","), nil
+}
+
+func (minioS3Client *MinioS3Client) CheckUserCredentialsValid(name string, accessKey string, secretKey string) (bool, error) {
+	s3Logger.Info("Check credential for user", "user", name)
+	minioTestClientOptions := &minio.Options{
+		Creds:  credentials.NewStaticV4(accessKey, secretKey, ""),
+		Region: minioS3Client.s3Config.Region,
+		Secure: minioS3Client.s3Config.UseSsl,
+	}
+	addTransportOptions(&minioS3Client.s3Config, minioTestClientOptions)
+	minioTestClient, err := minio.New(minioS3Client.s3Config.S3UrlEndpoint, minioTestClientOptions)
+	if err != nil {
+		s3Logger.Error(err, "An error occurred while creating a new minio test client")
+	}
+
+	_, err = minioTestClient.ListBuckets(context.Background())
+	if err != nil {
+		s3Logger.Error(err, "An error occurred while listing bucket")
+		return false, err
+	}
+	return true, nil
+}
+
+func (minioS3Client *MinioS3Client) RemovePoliciesFromUser(username string, policies []string) error {
+	s3Logger.Info(fmt.Sprintf("Remove policy [%s] from user [%s]", policies, username))
+
+	opts := madmin.PolicyAssociationReq{
+		Policies: policies,
+		User:     username,
+	}
+
+	_, err := minioS3Client.adminClient.DetachPolicy(context.Background(), opts)
+
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (minioS3Client *MinioS3Client) AddPoliciesToUser(username string, policies []string) error {
+	s3Logger.Info("Adding policies to user", "user", username, "policies", policies)
+	opts := madmin.PolicyAssociationReq{
+		User:     username,
+		Policies: policies,
+	}
+	_, err := minioS3Client.adminClient.AttachPolicy(context.Background(), opts)
+	if err != nil {
+		return err
+	}
+	return nil
 }

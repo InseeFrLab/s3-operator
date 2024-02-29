@@ -11,7 +11,7 @@ This Operator SDK based tool aims at managing S3 related resources (buckets, pol
 
 This operator has been successfully tested with : 
 
-- Kubernetes : 1.25, 1.26, 1.27
+- Kubernetes : 1.25, 1.26, 1.27 (v0.7.0), 1.28 (v0.7.0 and v0.8.0)
 - MinIO : 2023-05-27T05:56:19Z (up to v0.3.0 included), 2023-11-20T22-40-07Z (from v0.4.0 onwards)
 
 ## Description
@@ -33,11 +33,11 @@ Each custom resource based on these CRDs on Kubernetes is to be matched with a r
 Two important caveats : 
 
 - It is one-way - if something happens on the S3 side directly (instead of going through the CRs), the operator has no way of reacting. At best, the next trigger will overwrite the S3 state with the declared state in the k8s custom resource.
-- For now, the operator won't delete any resource on S3 - if a CR is removed, its matching resource on S3 will still be present. This behavior was primarily picked to avoid data loss for bucket, but also applied to policies.
+- Originally, the operator did not manage resource deletion. This has changed in release v0.8.0 (see #40), but it still isn't a focus, and the implementation is simple. For instance, bucket deletion will simply fail if bucket is not empty - no logic was added to opt-in a "forced" deletion of everything inside the bucket.
 
 ## Installation
 
-The S3 operator is provided either in source form through this repositoy, or already built as a Docker image available on [Docker Hub](https://hub.docker.com/r/inseefrlab/s3-operator).
+The S3 operator is provided either in source form through this repository, or already built as a Docker image available on [Docker Hub](https://hub.docker.com/r/inseefrlab/s3-operator).
 
 ### Helm
 
@@ -70,22 +70,22 @@ The operator exposes a few parameters, meant to be set as arguments, though it's
 
 The parameters are summarized in the table below :
 
-|            Flag name            |     Default      | Environment variable | Multiple values allowed | Description |
-|---------------------------------|------------------|----------------------|-------------------------|-------------|
-| `health-probe-bind-address`     | `:8081`          | -                    | no  | The address the probe endpoint binds to. Comes from Operator SDK.
-| `leader-elect`                  | `false`          | -                    | no  | Enable leader election for controller manager. Enabling this will ensure there is only one active controller manager. Comes from Operator SDK.
-| `metrics-bind-address`          | `:8080`          | -                    | no  | The address the metric endpoint binds to. Comes from Operator SDK.
-| `region`                        | `us-east-1`      | -                    | no  | The region to configure for the S3 client.
-| `s3-access-key`                 | -                | `S3_ACCESS_KEY`      | no  | The access key used to interact with the S3 server.
-| `s3-ca-certificate-base64`      | -                | -                    | yes | (Optional) Base64 encoded, PEM format CA certificate, for https requests to the S3 server.
-| `s3-ca-certificate-bundle-path` | -                | -                    | no  | (Optional) Path to a CA certificates bundle file, for https requests to the S3 server.
-| `s3-endpoint-url`               | `localhost:9000` | -                    | no  | Hostname (or hostname:port) of the S3 server.
-| `s3-provider`                   | `minio`          | -                    | no  | S3 provider (possible values : `minio`, `mockedS3Provider`)
-| `s3-secret-key`                 | -                | `S3_SECRET_KEY`      | no  | The secret key used to interact with  the S3 server.
-| `useSsl`                        | true             | -                    | no  | Use of SSL/TLS to connect to the S3 server
-| `bucket-deletion`               | false            | -                    | no  | Trigger bucket deletion on the S3 backend upon CR deletion. Will fail if bucket is not empty.
-| `policy-deletion`               | false            | -                    | no  | Trigger policy deletion on the S3 backend upon CR deletion
-| `path-deletion`                 | false            | -                    | no  | Trigger path deletion on the S3 backend upon CR deletion. Limited to deleting the `.keep` files used by the operator.
+| Flag name                       | Default          | Environment variable | Multiple values allowed | Description                                                                                                                                    |
+| ------------------------------- | ---------------- | -------------------- | ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `health-probe-bind-address`     | `:8081`          | -                    | no                      | The address the probe endpoint binds to. Comes from Operator SDK.                                                                              |
+| `leader-elect`                  | `false`          | -                    | no                      | Enable leader election for controller manager. Enabling this will ensure there is only one active controller manager. Comes from Operator SDK. |
+| `metrics-bind-address`          | `:8080`          | -                    | no                      | The address the metric endpoint binds to. Comes from Operator SDK.                                                                             |
+| `region`                        | `us-east-1`      | -                    | no                      | The region to configure for the S3 client.                                                                                                     |
+| `s3-access-key`                 | -                | `S3_ACCESS_KEY`      | no                      | The access key used to interact with the S3 server.                                                                                            |
+| `s3-ca-certificate-base64`      | -                | -                    | yes                     | (Optional) Base64 encoded, PEM format CA certificate, for https requests to the S3 server.                                                     |
+| `s3-ca-certificate-bundle-path` | -                | -                    | no                      | (Optional) Path to a CA certificates bundle file, for https requests to the S3 server.                                                         |
+| `s3-endpoint-url`               | `localhost:9000` | -                    | no                      | Hostname (or hostname:port) of the S3 server.                                                                                                  |
+| `s3-provider`                   | `minio`          | -                    | no                      | S3 provider (possible values : `minio`, `mockedS3Provider`)                                                                                    |
+| `s3-secret-key`                 | -                | `S3_SECRET_KEY`      | no                      | The secret key used to interact with  the S3 server.                                                                                           |
+| `useSsl`                        | true             | -                    | no                      | Use of SSL/TLS to connect to the S3 server                                                                                                     |
+| `bucket-deletion`               | false            | -                    | no                      | Trigger bucket deletion on the S3 backend upon CR deletion. Will fail if bucket is not empty.                                                  |
+| `policy-deletion`               | false            | -                    | no                      | Trigger policy deletion on the S3 backend upon CR deletion                                                                                     |
+| `path-deletion`                 | false            | -                    | no                      | Trigger path deletion on the S3 backend upon CR deletion. Limited to deleting the `.keep` files used by the operator.                          |
 
 
 ## Usage
@@ -216,11 +216,11 @@ kubectl apply -f config/samples/
 ```
 
 2. Build and push your image to the location specified by `IMG`:
-	
+  
 ```sh
 make docker-build docker-push IMG=<some-registry>/s3-operator:tag
 ```
-	
+  
 3. Deploy the controller to the cluster with the image specified by `IMG`:
 
 ```sh

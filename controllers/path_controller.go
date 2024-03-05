@@ -126,9 +126,10 @@ func (r *PathReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 
 	// If bucket does not exist, the Path CR should be in a failing state
 	if !bucketFound {
-		errorLogger.Error(err, "the path CR references a non-existing bucket", "pathCr", pathResource.Name, "bucket", pathResource.Spec.BucketName)
+		errorBucketNotFound := fmt.Errorf("the path CR %s references a non-existing bucket : %s", pathResource.Name, pathResource.Spec.BucketName)
+		errorLogger.Error(errorBucketNotFound, errorBucketNotFound.Error())
 		return r.SetPathStatusConditionAndUpdate(ctx, pathResource, "OperatorFailed", metav1.ConditionFalse, "ReferencingNonExistingBucket",
-			fmt.Sprintf("The Path CR [%s] references a non-existing bucket [%s]", pathResource.Name, pathResource.Spec.BucketName), err)
+			fmt.Sprintf("The Path CR [%s] references a non-existing bucket [%s]", pathResource.Name, pathResource.Spec.BucketName), errorBucketNotFound)
 	}
 
 	// If the bucket exists, proceed to create or recreate the referenced paths

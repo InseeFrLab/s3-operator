@@ -39,7 +39,7 @@ type PathSpec struct {
 
 // PathStatus defines the observed state of Path
 type PathStatus struct {
-	// Status management using Conditions. 
+	// Status management using Conditions.
 	// See also : https://github.com/kubernetes/community/blob/master/contributors/devel/sig-architecture/api-conventions.md#typical-status-properties
 	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type"`
 }

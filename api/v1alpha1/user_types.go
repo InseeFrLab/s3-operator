@@ -33,8 +33,16 @@ type UserSpec struct {
 	Name string `json:"name"`
 
 	// Password of the User
-	// +kubebuilder:validation:Required
-	Password string `json:"password"`
+	// +kubebuilder:validation:Optional
+	Password string `json:"password,omitempty"`
+
+	// Groups associated to the User
+	// +kubebuilder:validation:Optional
+	Groups []string `json:"groups,omitempty"`
+
+	// Policies associated to the User
+	// +kubebuilder:validation:Optional
+	Policies []string `json:"policies,omitempty"`
 }
 
 // UserStatus defines the observed state of User
@@ -58,7 +66,7 @@ type User struct {
 
 //+kubebuilder:object:root=true
 
-// BucketList contains a list of Bucket
+// UserList contains a list of User
 type UserList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`

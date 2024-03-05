@@ -79,15 +79,24 @@ func (r *UserReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	// If the user does not exist, it is created based on the CR
 	if !found {
 		// User creation
+		username := userResource.Spec.Name
 		password := userResource.Spec.Password
 		if (password) == "" {
 			password = utils.GeneratePassword(10, true, true, true)
 		}
-		err = r.S3Client.CreateUser(userResource.Spec.Name, password)
+		err = r.S3Client.CreateUser(username, password)
 		if err != nil {
 			logger.Error(err, "an error occurred while creating a user", "user", userResource.Spec.Name)
 			return r.SetUserStatusConditionAndUpdate(ctx, userResource, "OperatorFailed", metav1.ConditionFalse, "UserCreationFailed",
 				fmt.Sprintf("Creation of user [%s] on S3 instance has failed", userResource.Spec.Name), err)
+		}
+		policies := userResource.Spec.Policies
+		if policies != nil {
+			r.S3Client.AddPoliciesToUser(username, policies)
+		}
+		groups := userResource.Spec.Groups
+		if groups != nil {
+			r.S3Client.AddGroupsToUser(username, groups)
 		}
 
 		// The user creation happened without any error

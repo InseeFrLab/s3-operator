@@ -224,6 +224,35 @@ func (minioS3Client *MinioS3Client) CreateUser(name string, password string) err
 	return nil
 }
 
+func (minioS3Client *MinioS3Client) AddPoliciesToUser(username string, policies []string) error {
+	s3Logger.Info("Adding policies to user", "user", username, "policies", policies)
+	opts := madmin.PolicyAssociationReq{
+		User:     username,
+		Policies: policies,
+	}
+	_, err := minioS3Client.adminClient.AttachPolicy(context.Background(), opts)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (minioS3Client *MinioS3Client) AddGroupsToUser(username string, groups []string) error {
+	s3Logger.Info("Adding groups to user", "user", username, "groups", groups)
+	for i := 0; i < len(groups); i++ {
+		members := []string{username}
+		opts := madmin.GroupAddRemove{
+			Group:   groups[i],
+			Members: members,
+		}
+		err := minioS3Client.adminClient.UpdateGroupMembers(context.Background(), opts)
+		if err != nil {
+			s3Logger.Error(err, "Error when adding user to group", "user", username, "group", groups[i])
+		}
+	}
+	return nil
+}
+
 func (minioS3Client *MinioS3Client) AddServiceAccountForUser(name string, accessKey string, secretKey string) error {
 	s3Logger.Info("Adding service account for user", "user", name)
 
@@ -247,13 +276,43 @@ func (minioS3Client *MinioS3Client) AddServiceAccountForUser(name string, access
 
 func (minioS3Client *MinioS3Client) UserExist(name string) (bool, error) {
 	s3Logger.Info("checking user existence", "user", name)
-	_, _err := minioS3Client.adminClient.GetUserInfo(context.Background(), name)
+	user, _err := minioS3Client.adminClient.GetUserInfo(context.Background(), name)
 	if _err != nil {
+		s3Logger.Info("received code", "user", user)
 		if minio.ToErrorResponse(_err).Code == "XMinioAdminNoSuchUser" {
 			return false, nil
 		}
 		return false, _err
-
 	}
 	return true, nil
+}
+
+func (minioS3Client *MinioS3Client) PolicyExist(name string) (bool, error) {
+	s3Logger.Info("checking policy existence", "policy", name)
+	policies, err := minioS3Client.adminClient.ListPolicies(context.Background(), name)
+	if err != nil {
+		return false, err
+	}
+	filteredPolicies := []string{}
+	for i := 0; i < len(policies); i++ {
+		if policies[i].Name == name {
+			filteredPolicies = append(filteredPolicies, name)
+		}
+	}
+	return len(filteredPolicies) > 0, nil
+}
+
+func (minioS3Client *MinioS3Client) GroupExist(name string) (bool, error) {
+	s3Logger.Info("checking group existence", "group", name)
+	groups, err := minioS3Client.adminClient.ListGroups(context.Background())
+	if err != nil {
+		return false, err
+	}
+	filteredGroups := []string{}
+	for i := 0; i < len(groups); i++ {
+		if groups[i] == name {
+			filteredGroups = append(filteredGroups, name)
+		}
+	}
+	return len(filteredGroups) > 0, nil
 }

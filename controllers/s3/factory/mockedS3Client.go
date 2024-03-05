@@ -51,17 +51,38 @@ func (mockedS3Provider *MockedS3Client) CreateOrUpdatePolicy(name string, conten
 	return nil
 }
 
-func (minioS3Client *MockedS3Client) CreateUser(name string, password string) error {
+func (mockedS3Provider *MockedS3Client) CreateUser(name string, password string) error {
 	s3Logger.Info("create or update user", "user", name)
 	return nil
 }
 
-func (minioS3Client *MockedS3Client) UserExist(name string) (bool, error) {
+func (mockedS3Provider *MockedS3Client) UserExist(name string) (bool, error) {
+	s3Logger.Info("checking user existence", "user", name)
 	return true, nil
 }
 
-func (minioS3Client *MockedS3Client) AddServiceAccountForUser(name string, accessKey string, secretKey string) error {
+func (mockedS3Provider *MockedS3Client) AddServiceAccountForUser(name string, accessKey string, secretKey string) error {
 	s3Logger.Info("Adding service account for user", "user", name)
+	return nil
+}
+
+func (mockedS3Provider *MockedS3Client) PolicyExist(name string) (bool, error) {
+	s3Logger.Info("checking policy existence", "policy", name)
+	return true, nil
+}
+
+func (mockedS3Provider *MockedS3Client) GroupExist(name string) (bool, error) {
+	s3Logger.Info("checking group existence", "group", name)
+	return true, nil
+}
+
+func (mockedS3Provider *MockedS3Client) AddPoliciesToUser(username string, policies []string) error {
+	s3Logger.Info("Adding policies to user", "user", username, "policies", policies)
+	return nil
+}
+
+func (mockedS3Provider *MockedS3Client) AddGroupsToUser(username string, groups []string) error {
+	s3Logger.Info("Adding groups to user", "user", username, "groups", groups)
 	return nil
 }
 

@@ -19,9 +19,9 @@ package controllers
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
@@ -35,6 +35,7 @@ import (
 
 	s3v1alpha1 "github.com/InseeFrLab/s3-operator/api/v1alpha1"
 	"github.com/InseeFrLab/s3-operator/controllers/s3/factory"
+	"github.com/InseeFrLab/s3-operator/controllers/utils"
 )
 
 // PathReconciler reconciles a Path object
@@ -57,8 +58,7 @@ const pathFinalizer = "s3.onyxia.sh/finalizer"
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.14.1/pkg/reconcile
 func (r *PathReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	errorLogger := log.FromContext(ctx)
-	logger := ctrl.Log.WithName("pathReconcile")
+	logger := log.FromContext(ctx)
 
 	// Checking for path resource existence
 	pathResource := &s3v1alpha1.Path{}
@@ -68,7 +68,7 @@ func (r *PathReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 			logger.Info("The Path custom resource has been removed ; as such the Path controller is NOOP.", "req.Name", req.Name)
 			return ctrl.Result{}, nil
 		}
-		errorLogger.Error(err, "An error occurred when attempting to read the Path resource from the Kubernetes cluster")
+		logger.Error(err, "An error occurred when attempting to read the Path resource from the Kubernetes cluster")
 		return ctrl.Result{}, err
 	}
 
@@ -82,7 +82,7 @@ func (r *PathReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 			// that we can retry during the next reconciliation.
 			if err := r.finalizePath(pathResource); err != nil {
 				// return ctrl.Result{}, err
-				errorLogger.Error(err, "an error occurred when attempting to finalize the path", "path", pathResource.Name)
+				logger.Error(err, "an error occurred when attempting to finalize the path", "path", pathResource.Name)
 				// return ctrl.Result{}, err
 				return r.SetPathStatusConditionAndUpdate(ctx, pathResource, "OperatorFailed", metav1.ConditionFalse, "PathFinalizeFailed",
 					fmt.Sprintf("An error occurred when attempting to delete path [%s]", pathResource.Name), err)
@@ -93,7 +93,7 @@ func (r *PathReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 			controllerutil.RemoveFinalizer(pathResource, pathFinalizer)
 			err := r.Update(ctx, pathResource)
 			if err != nil {
-				errorLogger.Error(err, "an error occurred when removing finalizer from path", "path", pathResource.Name)
+				logger.Error(err, "an error occurred when removing finalizer from path", "path", pathResource.Name)
 				// return ctrl.Result{}, err
 				return r.SetPathStatusConditionAndUpdate(ctx, pathResource, "OperatorFailed", metav1.ConditionFalse, "PathFinalizerRemovalFailed",
 					fmt.Sprintf("An error occurred when attempting to remove the finalizer from path [%s]", pathResource.Name), err)
@@ -107,7 +107,7 @@ func (r *PathReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 		controllerutil.AddFinalizer(pathResource, pathFinalizer)
 		err = r.Update(ctx, pathResource)
 		if err != nil {
-			errorLogger.Error(err, "an error occurred when adding finalizer from path", "path", pathResource.Name)
+			logger.Error(err, "an error occurred when adding finalizer from path", "path", pathResource.Name)
 			// return ctrl.Result{}, err
 			return r.SetPathStatusConditionAndUpdate(ctx, pathResource, "OperatorFailed", metav1.ConditionFalse, "PathFinalizerAddFailed",
 				fmt.Sprintf("An error occurred when attempting to add the finalizer from path [%s]", pathResource.Name), err)
@@ -119,7 +119,7 @@ func (r *PathReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	// Check bucket existence on the S3 server
 	bucketFound, err := r.S3Client.BucketExists(pathResource.Spec.BucketName)
 	if err != nil {
-		errorLogger.Error(err, "an error occurred while checking the existence of a bucket", "bucket", pathResource.Spec.BucketName)
+		logger.Error(err, "an error occurred while checking the existence of a bucket", "bucket", pathResource.Spec.BucketName)
 		return r.SetPathStatusConditionAndUpdate(ctx, pathResource, "OperatorFailed", metav1.ConditionFalse, "BucketExistenceCheckFailed",
 			fmt.Sprintf("Checking existence of bucket [%s] from S3 instance has failed", pathResource.Spec.BucketName), err)
 	}
@@ -127,7 +127,7 @@ func (r *PathReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	// If bucket does not exist, the Path CR should be in a failing state
 	if !bucketFound {
 		errorBucketNotFound := fmt.Errorf("the path CR %s references a non-existing bucket : %s", pathResource.Name, pathResource.Spec.BucketName)
-		errorLogger.Error(errorBucketNotFound, errorBucketNotFound.Error())
+		logger.Error(errorBucketNotFound, errorBucketNotFound.Error())
 		return r.SetPathStatusConditionAndUpdate(ctx, pathResource, "OperatorFailed", metav1.ConditionFalse, "ReferencingNonExistingBucket",
 			fmt.Sprintf("The Path CR [%s] references a non-existing bucket [%s]", pathResource.Name, pathResource.Spec.BucketName), errorBucketNotFound)
 	}
@@ -143,7 +143,7 @@ func (r *PathReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	for _, pathInCr := range pathResource.Spec.Paths {
 		pathExists, err := r.S3Client.PathExists(pathResource.Spec.BucketName, pathInCr)
 		if err != nil {
-			errorLogger.Error(err, "an error occurred while checking a path's existence on a bucket", "bucket", pathResource.Spec.BucketName, "path", pathInCr)
+			logger.Error(err, "an error occurred while checking a path's existence on a bucket", "bucket", pathResource.Spec.BucketName, "path", pathInCr)
 			return r.SetPathStatusConditionAndUpdate(ctx, pathResource, "OperatorFailed", metav1.ConditionFalse, "PathCheckFailed",
 				fmt.Sprintf("The check for path [%s] on bucket [%s] has failed", pathInCr, pathResource.Spec.BucketName), err)
 		}
@@ -151,7 +151,7 @@ func (r *PathReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 		if !pathExists {
 			err = r.S3Client.CreatePath(pathResource.Spec.BucketName, pathInCr)
 			if err != nil {
-				errorLogger.Error(err, "an error occurred while creating a path on a bucket", "bucket", pathResource.Spec.BucketName, "path", pathInCr)
+				logger.Error(err, "an error occurred while creating a path on a bucket", "bucket", pathResource.Spec.BucketName, "path", pathInCr)
 				return r.SetPathStatusConditionAndUpdate(ctx, pathResource, "OperatorFailed", metav1.ConditionFalse, "PathCreationFailed",
 					fmt.Sprintf("The creation of path [%s] on bucket [%s] has failed", pathInCr, pathResource.Spec.BucketName), err)
 			}
@@ -166,44 +166,16 @@ func (r *PathReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *PathReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	logger := ctrl.Log.WithName("pathEventFilter")
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&s3v1alpha1.Path{}).
 		// REF : https://sdk.operatorframework.io/docs/building-operators/golang/references/event-filtering/
 		WithEventFilter(predicate.Funcs{
 			UpdateFunc: func(e event.UpdateEvent) bool {
-				// Only reconcile if :
-				// - Generation has changed
-				//   or
-				// - Of all Conditions matching the last generation, none is in status "True"
-				// There is an implicit assumption that in such a case, the resource was once failing, but then transitioned
-				// to a functional state. We use this ersatz because lastTransitionTime appears to not work properly - see also
-				// comment in SetPathStatusConditionAndUpdate() below.
-				newPath, _ := e.ObjectNew.(*s3v1alpha1.Path)
-
-				// 1 - Identifying the most recent generation
-				var maxGeneration int64 = 0
-				for _, condition := range newPath.Status.Conditions {
-					if condition.ObservedGeneration > maxGeneration {
-						maxGeneration = condition.ObservedGeneration
-					}
-				}
-				// 2 - Checking one of the conditions in most recent generation is True
-				conditionTrueInLastGeneration := false
-				for _, condition := range newPath.Status.Conditions {
-					if condition.ObservedGeneration == maxGeneration && condition.Status == metav1.ConditionTrue {
-						conditionTrueInLastGeneration = true
-					}
-				}
-				predicate := e.ObjectOld.GetGeneration() != e.ObjectNew.GetGeneration() || !conditionTrueInLastGeneration
-				if !predicate {
-					logger.Info("reconcile update event is filtered out", "resource", e.ObjectNew.GetName())
-				}
-				return predicate
+				// Only reconcile if generation has changed
+				return e.ObjectOld.GetGeneration() != e.ObjectNew.GetGeneration()
 			},
 			DeleteFunc: func(e event.DeleteEvent) bool {
 				// Evaluates to false if the object has been confirmed deleted.
-				logger.Info("reconcile delete event is filtered out", "resource", e.Object.GetName())
 				return !e.DeleteStateUnknown
 			},
 		}).
@@ -212,18 +184,26 @@ func (r *PathReconciler) SetupWithManager(mgr ctrl.Manager) error {
 }
 
 func (r *PathReconciler) finalizePath(pathResource *s3v1alpha1.Path) error {
+	logger := log.Log.WithName("finalize")
 	if r.PathDeletion {
-		var err error
 		var failedPaths []string = make([]string, 0)
 		for _, path := range pathResource.Spec.Paths {
-			err = r.S3Client.DeletePath(pathResource.Spec.BucketName, path)
+
+			pathExists, err := r.S3Client.PathExists(pathResource.Spec.BucketName, path)
 			if err != nil {
-				failedPaths = append(failedPaths, path)
+				logger.Error(err, "finalize : an error occurred while checking a path's existence on a bucket", "bucket", pathResource.Spec.BucketName, "path", path)
+			}
+
+			if pathExists {
+				err = r.S3Client.DeletePath(pathResource.Spec.BucketName, path)
+				if err != nil {
+					failedPaths = append(failedPaths, path)
+				}
 			}
 		}
 
 		if len(failedPaths) > 0 {
-			return fmt.Errorf("At least one path couldn't be removed from S3 backend", "failedPaths", failedPaths)
+			return fmt.Errorf("at least one path couldn't be removed from S3 backend %+q", failedPaths)
 		}
 	}
 	return nil
@@ -232,26 +212,17 @@ func (r *PathReconciler) finalizePath(pathResource *s3v1alpha1.Path) error {
 func (r *PathReconciler) SetPathStatusConditionAndUpdate(ctx context.Context, pathResource *s3v1alpha1.Path, conditionType string, status metav1.ConditionStatus, reason string, message string, srcError error) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 
-	// It would seem LastTransitionTime does not work as intended (our understanding of the intent coming from this :
-	// https://pkg.go.dev/k8s.io/apimachinery@v0.28.3/pkg/api/meta#SetStatusCondition). Whether we set the
-	// date manually or leave it out to have default behavior, the lastTransitionTime is NOT updated if the CR
-	// had that condition at least once in the past.
-	// For instance, with the following updates to a CR :
-	//	- gen 1 : condition type = A
-	//	- gen 2 : condition type = B
-	//	- gen 3 : condition type = A again
-	// Then the condition with type A in CR Status will still have the lastTransitionTime dating back to gen 1.
-	// Because of this, lastTransitionTime cannot be reliably used to determine current state, which in turn had
-	// us turn to a less than ideal event filter (see above in SetupWithManager())
-	meta.SetStatusCondition(&pathResource.Status.Conditions,
-		metav1.Condition{
-			Type:   conditionType,
-			Status: status,
-			Reason: reason,
-			// LastTransitionTime: metav1.NewTime(time.Now()),
-			Message:            message,
-			ObservedGeneration: pathResource.GetGeneration(),
-		})
+	// We moved away from meta.SetStatusCondition, as the implementation did not allow for updating
+	// lastTransitionTime if a Condition (as identified by Reason instead of Type) was previously
+	// obtained and updated to again.
+	pathResource.Status.Conditions = utils.UpdateConditions(pathResource.Status.Conditions, metav1.Condition{
+		Type:               conditionType,
+		Status:             status,
+		Reason:             reason,
+		LastTransitionTime: metav1.NewTime(time.Now()),
+		Message:            message,
+		ObservedGeneration: pathResource.GetGeneration(),
+	})
 
 	err := r.Status().Update(ctx, pathResource)
 	if err != nil {

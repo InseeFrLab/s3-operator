@@ -18,6 +18,7 @@ type S3Client interface {
 	DeleteBucket(name string) error
 	CreatePath(bucketname string, path string) error
 	PathExists(bucketname string, path string) (bool, error)
+	DeletePath(bucketname string, path string) error
 	GetQuota(name string) (int64, error)
 	SetQuota(name string, quota int64) error
 	// see comment in [minioS3Client.go] regarding the absence of a PolicyExists method
@@ -31,6 +32,7 @@ type S3Client interface {
 	AddServiceAccountForUser(name string, accessKey string, secretKey string) error
 	AddPoliciesToUser(username string, policies []string) error
 	AddGroupsToUser(username string, groups []string) error
+	DeletePolicy(name string) error
 }
 
 type S3Config struct {
@@ -51,6 +53,5 @@ func GetS3Client(s3Provider string, S3Config *S3Config) (S3Client, error) {
 	if s3Provider == "minio" {
 		return newMinioS3Client(S3Config), nil
 	}
-	//TODO ? : add others S3 providers
 	return nil, fmt.Errorf("s3 provider " + s3Provider + "not supported")
 }

@@ -25,31 +25,35 @@ import (
 
 	"github.com/minio/madmin-go/v3"
 	"k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
-	s3v1alpha1 "github.com/phlg/s3-operator-downgrade/api/v1alpha1"
-	"github.com/phlg/s3-operator-downgrade/controllers/s3/factory"
+	s3v1alpha1 "github.com/InseeFrLab/s3-operator/api/v1alpha1"
+	"github.com/InseeFrLab/s3-operator/controllers/s3/factory"
+	"github.com/InseeFrLab/s3-operator/controllers/utils"
 )
 
 // PolicyReconciler reconciles a Policy object
 type PolicyReconciler struct {
 	client.Client
-	Scheme   *runtime.Scheme
-	S3Client factory.S3Client
+	Scheme         *runtime.Scheme
+	S3Client       factory.S3Client
+	PolicyDeletion bool
 }
 
 //+kubebuilder:rbac:groups=s3.onyxia.sh,resources=policies,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=s3.onyxia.sh,resources=policies/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=s3.onyxia.sh,resources=policies/finalizers,verbs=update
+
+const policyFinalizer = "s3.onyxia.sh/finalizer"
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -59,15 +63,61 @@ type PolicyReconciler struct {
 func (r *PolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 
+	// Checking for policy resource existence
 	policyResource := &s3v1alpha1.Policy{}
 	err := r.Get(ctx, req.NamespacedName, policyResource)
 	if err != nil {
 		if errors.IsNotFound(err) {
-			logger.Info("The Policy CRD has been removed ; as such the Policy controller is NOOP.", "req.Name", req.Name)
+			logger.Info("The Policy custom resource has been removed ; as such the Policy controller is NOOP.", "req.Name", req.Name)
 			return ctrl.Result{}, nil
 		}
+		logger.Error(err, "An error occurred when attempting to read the Policy resource from the Kubernetes cluster")
 		return ctrl.Result{}, err
 	}
+
+	// Managing policy deletion with a finalizer
+	// REF : https://sdk.operatorframework.io/docs/building-operators/golang/advanced-topics/#external-resources
+	isMarkedForDeletion := policyResource.GetDeletionTimestamp() != nil
+	if isMarkedForDeletion {
+		if controllerutil.ContainsFinalizer(policyResource, policyFinalizer) {
+			// Run finalization logic for policyFinalizer. If the
+			// finalization logic fails, don't remove the finalizer so
+			// that we can retry during the next reconciliation.
+			if err := r.finalizePolicy(policyResource); err != nil {
+				// return ctrl.Result{}, err
+				logger.Error(err, "an error occurred when attempting to finalize the policy", "policy", policyResource.Spec.Name)
+				// return ctrl.Result{}, err
+				return r.SetPolicyStatusConditionAndUpdate(ctx, policyResource, "OperatorFailed", metav1.ConditionFalse, "PolicyFinalizeFailed",
+					fmt.Sprintf("An error occurred when attempting to delete policy [%s]", policyResource.Spec.Name), err)
+			}
+
+			// Remove policyFinalizer. Once all finalizers have been
+			// removed, the object will be deleted.
+			controllerutil.RemoveFinalizer(policyResource, policyFinalizer)
+			err := r.Update(ctx, policyResource)
+			if err != nil {
+				logger.Error(err, "an error occurred when removing finalizer from policy", "policy", policyResource.Spec.Name)
+				// return ctrl.Result{}, err
+				return r.SetPolicyStatusConditionAndUpdate(ctx, policyResource, "OperatorFailed", metav1.ConditionFalse, "PolicyFinalizerRemovalFailed",
+					fmt.Sprintf("An error occurred when attempting to remove the finalizer from policy [%s]", policyResource.Spec.Name), err)
+			}
+		}
+		return ctrl.Result{}, nil
+	}
+
+	// Add finalizer for this CR
+	if !controllerutil.ContainsFinalizer(policyResource, policyFinalizer) {
+		controllerutil.AddFinalizer(policyResource, policyFinalizer)
+		err = r.Update(ctx, policyResource)
+		if err != nil {
+			logger.Error(err, "an error occurred when adding finalizer from policy", "policy", policyResource.Spec.Name)
+			// return ctrl.Result{}, err
+			return r.SetPolicyStatusConditionAndUpdate(ctx, policyResource, "OperatorFailed", metav1.ConditionFalse, "PolicyFinalizerAddFailed",
+				fmt.Sprintf("An error occurred when attempting to add the finalizer from policy [%s]", policyResource.Spec.Name), err)
+		}
+	}
+
+	// Policy lifecycle management (other than deletion) starts here
 
 	// Check policy existence on the S3 server
 	effectivePolicy, err := r.S3Client.GetPolicyInfo(policyResource.Spec.Name)
@@ -126,11 +176,10 @@ func (r *PolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 func (r *PolicyReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&s3v1alpha1.Policy{}).
-		// TODO : implement a real strategy for event filtering ; for now just using the example from OpSDK doc
-		// (https://sdk.operatorframework.io/docs/building-operators/golang/references/event-filtering/)
+		// REF : https://sdk.operatorframework.io/docs/building-operators/golang/references/event-filtering/
 		WithEventFilter(predicate.Funcs{
 			UpdateFunc: func(e event.UpdateEvent) bool {
-				// Ignore updates to CR status in which case metadata.Generation does not change
+				// Only reconcile if generation has changed
 				return e.ObjectOld.GetGeneration() != e.ObjectNew.GetGeneration()
 			},
 			DeleteFunc: func(e event.DeleteEvent) bool {
@@ -161,30 +210,27 @@ func IsPolicyMatchingWithCustomResource(policyResource *s3v1alpha1.Policy, effec
 	return bytes.Equal(buffer.Bytes(), marshalled), nil
 }
 
-// func SetPolicyStatusCondition(policyResource *s3v1alpha1.Policy, conditionType string, status metav1.ConditionStatus, reason string, message string) {
-// 	meta.SetStatusCondition(&policyResource.Status.Conditions,
-// 		metav1.Condition{
-// 			Type:               conditionType,
-// 			Status:             status,
-// 			Reason:             reason,
-// 			LastTransitionTime: metav1.NewTime(time.Now()),
-// 			Message:            message,
-// 			ObservedGeneration: policyResource.GetGeneration(),
-// 		})
-// }
+func (r *PolicyReconciler) finalizePolicy(policyResource *s3v1alpha1.Policy) error {
+	if r.PolicyDeletion {
+		return r.S3Client.DeletePolicy(policyResource.Spec.Name)
+	}
+	return nil
+}
 
 func (r *PolicyReconciler) SetPolicyStatusConditionAndUpdate(ctx context.Context, policyResource *s3v1alpha1.Policy, conditionType string, status metav1.ConditionStatus, reason string, message string, srcError error) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 
-	meta.SetStatusCondition(&policyResource.Status.Conditions,
-		metav1.Condition{
-			Type:               conditionType,
-			Status:             status,
-			Reason:             reason,
-			LastTransitionTime: metav1.NewTime(time.Now()),
-			Message:            message,
-			ObservedGeneration: policyResource.GetGeneration(),
-		})
+	// We moved away from meta.SetStatusCondition, as the implementation did not allow for updating
+	// lastTransitionTime if a Condition (as identified by Reason instead of Type) was previously
+	// obtained and updated to again.
+	policyResource.Status.Conditions = utils.UpdateConditions(policyResource.Status.Conditions, metav1.Condition{
+		Type:               conditionType,
+		Status:             status,
+		Reason:             reason,
+		LastTransitionTime: metav1.NewTime(time.Now()),
+		Message:            message,
+		ObservedGeneration: policyResource.GetGeneration(),
+	})
 
 	err := r.Status().Update(ctx, policyResource)
 	if err != nil {

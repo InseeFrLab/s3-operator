@@ -22,31 +22,35 @@ import (
 	"time"
 
 	"k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
-	s3v1alpha1 "github.com/phlg/s3-operator-downgrade/api/v1alpha1"
-	"github.com/phlg/s3-operator-downgrade/controllers/s3/factory"
+	s3v1alpha1 "github.com/InseeFrLab/s3-operator/api/v1alpha1"
+	"github.com/InseeFrLab/s3-operator/controllers/s3/factory"
+	"github.com/InseeFrLab/s3-operator/controllers/utils"
 )
 
 // BucketReconciler reconciles a Bucket object
 type BucketReconciler struct {
 	client.Client
-	Scheme   *runtime.Scheme
-	S3Client factory.S3Client
+	Scheme         *runtime.Scheme
+	S3Client       factory.S3Client
+	BucketDeletion bool
 }
 
 //+kubebuilder:rbac:groups=s3.onyxia.sh,resources=buckets,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=s3.onyxia.sh,resources=buckets/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=s3.onyxia.sh,resources=buckets/finalizers,verbs=update
+
+const bucketFinalizer = "s3.onyxia.sh/finalizer"
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -56,15 +60,60 @@ type BucketReconciler struct {
 func (r *BucketReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 
+	// Checking for bucket resource existence
 	bucketResource := &s3v1alpha1.Bucket{}
 	err := r.Get(ctx, req.NamespacedName, bucketResource)
 	if err != nil {
 		if errors.IsNotFound(err) {
-			logger.Info(fmt.Sprintf("Bucket CRD %s has been removed. NOOP", req.Name))
+			logger.Info("The Bucket custom resource has been removed ; as such the Bucket controller is NOOP.", "req.Name", req.Name)
 			return ctrl.Result{}, nil
 		}
+		logger.Error(err, "An error occurred when attempting to read the Bucket resource from the Kubernetes cluster")
 		return ctrl.Result{}, err
 	}
+
+	// Managing bucket deletion with a finalizer
+	// REF : https://sdk.operatorframework.io/docs/building-operators/golang/advanced-topics/#external-resources
+	isMarkedForDeletion := bucketResource.GetDeletionTimestamp() != nil
+	if isMarkedForDeletion {
+		if controllerutil.ContainsFinalizer(bucketResource, bucketFinalizer) {
+			// Run finalization logic for bucketFinalizer. If the
+			// finalization logic fails, don't remove the finalizer so
+			// that we can retry during the next reconciliation.
+			if err := r.finalizeBucket(bucketResource); err != nil {
+				// return ctrl.Result{}, err
+				logger.Error(err, "an error occurred when attempting to finalize the bucket", "bucket", bucketResource.Spec.Name)
+				// return ctrl.Result{}, err
+				return r.SetBucketStatusConditionAndUpdate(ctx, bucketResource, "OperatorFailed", metav1.ConditionFalse, "BucketFinalizeFailed",
+					fmt.Sprintf("An error occurred when attempting to delete bucket [%s]", bucketResource.Spec.Name), err)
+			}
+
+			// Remove bucketFinalizer. Once all finalizers have been
+			// removed, the object will be deleted.
+			controllerutil.RemoveFinalizer(bucketResource, bucketFinalizer)
+			err := r.Update(ctx, bucketResource)
+			if err != nil {
+				logger.Error(err, "an error occurred when removing finalizer from bucket", "bucket", bucketResource.Spec.Name)
+				// return ctrl.Result{}, err
+				return r.SetBucketStatusConditionAndUpdate(ctx, bucketResource, "OperatorFailed", metav1.ConditionFalse, "BucketFinalizerRemovalFailed",
+					fmt.Sprintf("An error occurred when attempting to remove the finalizer from bucket [%s]", bucketResource.Spec.Name), err)
+			}
+		}
+		return ctrl.Result{}, nil
+	}
+
+	// Add finalizer for this CR
+	if !controllerutil.ContainsFinalizer(bucketResource, bucketFinalizer) {
+		controllerutil.AddFinalizer(bucketResource, bucketFinalizer)
+		err = r.Update(ctx, bucketResource)
+		if err != nil {
+			logger.Error(err, "an error occurred when adding finalizer from bucket", "bucket", bucketResource.Spec.Name)
+			return r.SetBucketStatusConditionAndUpdate(ctx, bucketResource, "OperatorFailed", metav1.ConditionFalse, "BucketFinalizerAddFailed",
+				fmt.Sprintf("An error occurred when attempting to add the finalizer from bucket [%s]", bucketResource.Spec.Name), err)
+		}
+	}
+
+	// Bucket lifecycle management (other than deletion) starts here
 
 	// Check bucket existence on the S3 server
 	found, err := r.S3Client.BucketExists(bucketResource.Spec.Name)
@@ -93,7 +142,7 @@ func (r *BucketReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 				fmt.Sprintf("Setting a quota of [%v] on bucket [%s] has failed", bucketResource.Spec.Quota.Default, bucketResource.Spec.Name), err)
 		}
 
-		// Création des chemins
+		// Path creation
 		for _, v := range bucketResource.Spec.Paths {
 			err = r.S3Client.CreatePath(bucketResource.Spec.Name, v)
 			if err != nil {
@@ -172,11 +221,10 @@ func (r *BucketReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 func (r *BucketReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&s3v1alpha1.Bucket{}).
-		// TODO : implement a real strategy for event filtering ; for now just using the example from OpSDK doc
-		// (https://sdk.operatorframework.io/docs/building-operators/golang/references/event-filtering/)
+		// REF : https://sdk.operatorframework.io/docs/building-operators/golang/references/event-filtering/
 		WithEventFilter(predicate.Funcs{
 			UpdateFunc: func(e event.UpdateEvent) bool {
-				// Ignore updates to CR status in which case metadata.Generation does not change
+				// Only reconcile if generation has changed
 				return e.ObjectOld.GetGeneration() != e.ObjectNew.GetGeneration()
 			},
 			DeleteFunc: func(e event.DeleteEvent) bool {
@@ -188,18 +236,27 @@ func (r *BucketReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
+func (r *BucketReconciler) finalizeBucket(bucketResource *s3v1alpha1.Bucket) error {
+	if r.BucketDeletion {
+		return r.S3Client.DeleteBucket(bucketResource.Spec.Name)
+	}
+	return nil
+}
+
 func (r *BucketReconciler) SetBucketStatusConditionAndUpdate(ctx context.Context, bucketResource *s3v1alpha1.Bucket, conditionType string, status metav1.ConditionStatus, reason string, message string, srcError error) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 
-	meta.SetStatusCondition(&bucketResource.Status.Conditions,
-		metav1.Condition{
-			Type:               conditionType,
-			Status:             status,
-			Reason:             reason,
-			LastTransitionTime: metav1.NewTime(time.Now()),
-			Message:            message,
-			ObservedGeneration: bucketResource.GetGeneration(),
-		})
+	// We moved away from meta.SetStatusCondition, as the implementation did not allow for updating
+	// lastTransitionTime if a Condition (as identified by Reason instead of Type) was previously
+	// obtained and updated to again.
+	bucketResource.Status.Conditions = utils.UpdateConditions(bucketResource.Status.Conditions, metav1.Condition{
+		Type:               conditionType,
+		Status:             status,
+		Reason:             reason,
+		LastTransitionTime: metav1.NewTime(time.Now()),
+		Message:            message,
+		ObservedGeneration: bucketResource.GetGeneration(),
+	})
 
 	err := r.Status().Update(ctx, bucketResource)
 	if err != nil {

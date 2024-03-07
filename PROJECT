@@ -9,7 +9,7 @@ plugins:
   manifests.sdk.operatorframework.io/v2: {}
   scorecard.sdk.operatorframework.io/v2: {}
 projectName: s3-operator
-repo: github.com/phlg/s3-operator-downgrade
+repo: github.com/InseeFrLab/s3-operator
 resources:
 - api:
     crdVersion: v1
@@ -18,7 +18,7 @@ resources:
   domain: onyxia.sh
   group: s3.onyxia.sh
   kind: Bucket
-  path: github.com/phlg/s3-operator-downgrade/api/v1alpha1
+  path: github.com/InseeFrLab/s3-operator/api/v1alpha1
   version: v1alpha1
 - api:
     crdVersion: v1
@@ -27,7 +27,7 @@ resources:
   domain: onyxia.sh
   group: s3.onyxia.sh
   kind: Policy
-  path: github.com/phlg/s3-operator-downgrade/api/v1alpha1
+  path: github.com/InseeFrLab/s3-operator/api/v1alpha1
   version: v1alpha1
 - api:
     crdVersion: v1
@@ -36,6 +36,6 @@ resources:
   domain: onyxia.sh
   group: s3.onyxia.sh
   kind: Path
-  path: github.com/phlg/s3-operator-downgrade/api/v1alpha1
+  path: github.com/InseeFrLab/s3-operator/api/v1alpha1
   version: v1alpha1
 version: "3"

@@ -32,11 +32,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	s3v1alpha1 "github.com/phlg/s3-operator-downgrade/api/v1alpha1"
-	"github.com/phlg/s3-operator-downgrade/controllers/s3/factory"
-
-	utils "github.com/phlg/s3-operator-downgrade/controllers/utils"
+	s3v1alpha1 "github.com/InseeFrLab/s3-operator/api/v1alpha1"
+	"github.com/InseeFrLab/s3-operator/controllers/s3/factory"
 )
 
 // UserReconciler reconciles a User object
@@ -56,8 +55,6 @@ type UserReconciler struct {
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.14.1/pkg/reconcile
 func (r *UserReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	logger := log.FromContext(ctx)
-
 	userResource := &s3v1alpha1.User{}
 	err := r.Get(ctx, req.NamespacedName, userResource)
 	if err != nil {
@@ -68,8 +65,11 @@ func (r *UserReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 		return ctrl.Result{}, err
 	}
 
+	userResource.GetDeletionTimestamp()!=nil
+
 	// Check user existence on the S3 server
 	found, err := r.S3Client.UserExist(userResource.Spec.Name)
+	
 	if err != nil {
 		logger.Error(err, "an error occurred while checking the existence of a user", "user", userResource.Spec.Name)
 		return r.SetUserStatusConditionAndUpdate(ctx, userResource, "OperatorFailed", metav1.ConditionFalse, "UserExistenceCheckFailed",
@@ -79,35 +79,40 @@ func (r *UserReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	// If the user does not exist, it is created based on the CR
 	if !found {
 		// User creation
-		username := userResource.Spec.Name
-		password := userResource.Spec.Password
-		if (password) == "" {
-			password = utils.GeneratePassword(10, true, true, true)
-		}
-		err = r.S3Client.CreateUser(username, password)
-		if err != nil {
-			logger.Error(err, "an error occurred while creating a user", "user", userResource.Spec.Name)
-			return r.SetUserStatusConditionAndUpdate(ctx, userResource, "OperatorFailed", metav1.ConditionFalse, "UserCreationFailed",
-				fmt.Sprintf("Creation of user [%s] on S3 instance has failed", userResource.Spec.Name), err)
-		}
-		policies := userResource.Spec.Policies
-		if policies != nil {
-			r.S3Client.AddPoliciesToUser(username, policies)
-		}
-		groups := userResource.Spec.Groups
-		if groups != nil {
-			r.S3Client.AddGroupsToUser(username, groups)
-		}
-
 		// The user creation happened without any error
-		return r.SetUserStatusConditionAndUpdate(ctx, userResource, "OperatorSucceeded", metav1.ConditionTrue, "UserCreated",
-			fmt.Sprintf("The user [%s] was created", userResource.Spec.Name), nil)
+		return handleUserCreation(ctx, userResource, err, r)
 	}
 
 	// The user reconciliation with its CR was succesful (or NOOP)
 	return r.SetUserStatusConditionAndUpdate(ctx, userResource, "OperatorSucceeded", metav1.ConditionTrue, "UserUpdated",
 		fmt.Sprintf("The user [%s] was updated according to its matching custom resource", userResource.Spec.Name), nil)
 
+}
+
+func handleUserCreation(ctx context.Context, userResource *s3v1alpha1.User, err error, r *UserReconciler) (reconcile.Result, error) {
+	logger := log.FromContext(ctx)
+	username := userResource.Spec.Name
+	password := userResource.Spec.Password
+	if (password) == "" {
+		password = utils.
+	}
+	err = r.S3Client.CreateUser(username, password)
+	if err != nil {
+		logger.Error(err, "an error occurred while creating a user", "user", userResource.Spec.Name)
+		return r.SetUserStatusConditionAndUpdate(ctx, userResource, "OperatorFailed", metav1.ConditionFalse, "UserCreationFailed",
+			fmt.Sprintf("Creation of user [%s] on S3 instance has failed", userResource.Spec.Name), err)
+	}
+	policies := userResource.Spec.Policies
+	if policies != nil {
+		r.S3Client.AddPoliciesToUser(username, policies)
+	}
+	groups := userResource.Spec.Groups
+	if groups != nil {
+		r.S3Client.AddGroupsToUser(username, groups)
+	}
+
+	return r.SetUserStatusConditionAndUpdate(ctx, userResource, "OperatorSucceeded", metav1.ConditionTrue, "UserCreated",
+		fmt.Sprintf("The user [%s] was created", userResource.Spec.Name), nil)
 }
 
 // SetupWithManager sets up the controller with the Manager.*

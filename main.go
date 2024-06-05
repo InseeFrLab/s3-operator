@@ -81,6 +81,10 @@ func main() {
 	var bucketDeletion bool
 	var policyDeletion bool
 	var pathDeletion bool
+	var s3userDeletion bool
+
+	//K8S related variable
+	var overrideExistingSecret bool
 
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
@@ -100,6 +104,8 @@ func main() {
 	flag.BoolVar(&bucketDeletion, "bucket-deletion", false, "Trigger bucket deletion on the S3 backend upon CR deletion. Will fail if bucket is not empty.")
 	flag.BoolVar(&policyDeletion, "policy-deletion", false, "Trigger policy deletion on the S3 backend upon CR deletion")
 	flag.BoolVar(&pathDeletion, "path-deletion", false, "Trigger path deletion on the S3 backend upon CR deletion. Limited to deleting the `.keep` files used by the operator.")
+	flag.BoolVar(&s3userDeletion, "s3user-deletion", false, "Trigger S3 deletion on the S3 backend upon CR deletion")
+	flag.BoolVar(&overrideExistingSecret, "override-existing-secret", false, "Override existing secret associated to user in case of the secret already exist")
 
 	opts := zap.Options{
 		Development: true,
@@ -193,12 +199,23 @@ func main() {
 		setupLog.Error(err, "unable to create controller", "controller", "Policy")
 		os.Exit(1)
 	}
+	if err = (&controllers.S3UserReconciler{
+		Client:                 mgr.GetClient(),
+		Scheme:                 mgr.GetScheme(),
+		S3Client:               s3Client,
+		S3UserDeletion:         s3userDeletion,
+		OverrideExistingSecret: overrideExistingSecret,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "S3User")
+		os.Exit(1)
+	}
 	//+kubebuilder:scaffold:builder
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
 		setupLog.Error(err, "unable to set up health check")
 		os.Exit(1)
 	}
+
 	if err := mgr.AddReadyzCheck("readyz", healthz.Ping); err != nil {
 		setupLog.Error(err, "unable to set up ready check")
 		os.Exit(1)

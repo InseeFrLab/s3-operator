@@ -23,9 +23,18 @@ type S3Client interface {
 	SetQuota(name string, quota int64) error
 	// see comment in [minioS3Client.go] regarding the absence of a PolicyExists method
 	// PolicyExists(name string) (bool, error)
+	PolicyExist(name string) (bool, error)
+	DeletePolicy(name string) error
 	GetPolicyInfo(name string) (*madmin.PolicyInfo, error)
 	CreateOrUpdatePolicy(name string, content string) error
-	DeletePolicy(name string) error
+	UserExist(name string) (bool, error)
+	CheckUserCredentialsValid(name string, accessKey string, secretKey string) (bool, error)
+	AddServiceAccountForUser(name string, accessKey string, secretKey string) error
+	CreateUser(name string, password string) error
+	DeleteUser(name string) error
+	GetUserPolicies(name string) ([]string, error)
+	AddPoliciesToUser(username string, policies []string) error
+	RemovePoliciesFromUser(username string, policies []string) error
 }
 
 type S3Config struct {

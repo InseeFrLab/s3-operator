@@ -5,6 +5,8 @@ resources:
 - bases/s3.onyxia.sh_buckets.yaml
 - bases/s3.onyxia.sh_policies.yaml
 - bases/s3.onyxia.sh_paths.yaml
+- bases/s3.onyxia.sh_s3users.yaml
+
 #+kubebuilder:scaffold:crdkustomizeresource
 
 patchesStrategicMerge:

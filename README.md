@@ -21,14 +21,16 @@ At its heart, the operator revolves around CRDs that match S3 resources :
 - `buckets.s3.onyxia.sh`
 - `policies.s3.onyxia.sh`
 - `paths.s3.onyxia.sh`
+- `users.s3.onyxia.sh`
 
 The custom resources based on these CRDs are a somewhat simplified projection of the real S3 resources. From the operator's point of view : 
 
 - A `Bucket` CR matches a S3 bucket, and only has a name, a quota (actually two, [see Bucket example in *Usage* section below](#bucket)), and optionally, a set of paths
 - A `Policy` CR matches a "canned" policy (not a bucket policy, but a global one, that can be attached to a user), and has a name, and its actual content (IAM JSON)
 - A `Path` CR matches a set of paths inside of a policy. This is akin to the `paths` property of the `Bucket` CRD, except `Path` is not responsible for Bucket creation. 
+- A `S3User` CR matches a user in the s3 server, and has a name, a set of policy and a set of group.
 
-Each custom resource based on these CRDs on Kubernetes is to be matched with a resource on the S3 instance. If the CR and the corresponding S3 resource diverge, the operator will create or update the S3 resource to bring it back to .
+Each custom resource based on these CRDs on Kubernetes is to be matched with a resource on the S3 instance. If the CR and the corresponding S3 resource diverge, the operator will create or update the S3 resource to bring it back to.
 
 Two important caveats : 
 
@@ -86,7 +88,56 @@ The parameters are summarized in the table below :
 | `bucket-deletion`               | false            | -                    | no                      | Trigger bucket deletion on the S3 backend upon CR deletion. Will fail if bucket is not empty.                                                  |
 | `policy-deletion`               | false            | -                    | no                      | Trigger policy deletion on the S3 backend upon CR deletion                                                                                     |
 | `path-deletion`                 | false            | -                    | no                      | Trigger path deletion on the S3 backend upon CR deletion. Limited to deleting the `.keep` files used by the operator.                          |
+| `s3User-deletion`               | false            | -                    | no                      | Trigger S3User deletion on the S3 backend upon CR deletion.                                                                                    |
+| `override-existing-secret`      | false            | -                    | no                      | Update secret linked to s3User if already exist, else noop                                                                                     |
 
+## Minimal rights needed to work
+
+The Operator need at least this rights:
+
+```json
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "Action": [
+                "s3:CreateBucket",
+                "s3:GetObject",
+                "s3:ListAllMyBuckets",
+                "s3:ListBucket",
+                "s3:PutObject"
+            ],
+            "Resource": [
+                "arn:aws:s3:::*"
+            ]
+        },
+        {
+            "Effect": "Allow",
+            "Action": [
+                "admin:CreatePolicy",
+                "admin:GetBucketQuota",
+                "admin:GetPolicy",
+                "admin:ListPolicy",
+                "admin:SetBucketQuota",
+                "admin:CreateUser",
+                "admin:ListUsers",
+                "admin:DeleteUser",
+                "admin:GetUser",
+                "admin:AddUserToGroup",
+                "admin:RemoveUserFromGroup",
+                "admin:AttachUserOrGroupPolicy",
+                "admin:ListUserPolicies"
+
+            ],
+            "Resource": [
+                "arn:aws:s3:::*"
+            ]
+        }
+    ]
+}
+
+```
 
 ## Usage
 
@@ -197,6 +248,29 @@ spec:
 
 ```
 
+### S3User example
+
+```yaml
+apiVersion: s3.onyxia.sh/v1alpha1
+kind: S3User
+metadata:
+  labels:
+    app.kubernetes.io/name: user
+    app.kubernetes.io/instance: user-sample
+    app.kubernetes.io/part-of: s3-operator
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/created-by: s3-operator
+  name: user-sample
+spec:
+  accessKey: user-sample
+  policies:
+    - policy-example1
+    - policy-example2
+
+```
+
+Each S3user is linked to a kubernetes secret which have the same name that the S3User. The secret contains 2 keys: `accessKey` and `secretKey`.
+
 ## Operator SDK generated guidelines
 
 <details>
@@ -276,3 +350,5 @@ make manifests
 More information can be found via the [Kubebuilder Documentation](https://book.kubebuilder.io/introduction.html)
 
 </details>
+
+

@@ -176,7 +176,7 @@ func handleReconcileS3User(ctx context.Context, err error, r *S3UserReconciler, 
 	if len(policyToDelete) > 0 {
 		r.S3Client.RemovePoliciesFromUser(userResource.Spec.AccessKey, policyToDelete)
 	}
-	
+
 	if len(policyToAdd) > 0 {
 		r.S3Client.AddPoliciesToUser(userResource.Spec.AccessKey, policyToAdd)
 	}
@@ -357,9 +357,13 @@ func (r *S3UserReconciler) newSecretForCR(ctx context.Context, userResource *s3v
 		annotations[k] = v
 	}
 
+	secretName := userResource.Name
+	if userResource.Spec.SecretName != "" {
+		secretName = userResource.Spec.SecretName
+	}
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:        userResource.Name,
+			Name:        secretName,
 			Namespace:   userResource.Namespace,
 			Labels:      labels,
 			Annotations: annotations,

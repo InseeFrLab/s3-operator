@@ -43,6 +43,9 @@ spec:
                 items:
                   type: string
                 type: array
+              secretName:
+                description: SecretName associated to the S3User
+                type: string
             required:
             - accessKey
             type: object

@@ -121,10 +121,27 @@ func (r *S3UserReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 
 func handleReconcileS3User(ctx context.Context, err error, r *S3UserReconciler, userResource *s3v1alpha1.S3User, logger logr.Logger) (reconcile.Result, error) {
 	secret := &corev1.Secret{}
-	err = r.Get(ctx, types.NamespacedName{Name: userResource.Name, Namespace: userResource.Namespace}, secret)
+	secretsList := &corev1.SecretList{}
+	uiid := userResource.GetUID()
+	fmt.Println("S3 user uuid :", uiid)
+	//err = r.Get(ctx, types.NamespacedName{Name: userResource.Name, Namespace: userResource.Namespace}, secretsList)
+	err = client.CoreV1().Secrets(userResource.Namespace).List(ctx, secretsList, &client.ListOptions{})
+	if err != nil {
+		return reconcile.Result{}, err
+	}
+	for _, secret := range secretsList.Items {
+		fmt.Println("jai des items oua pa s :", secret)
+		for _, ref := range secret.OwnerReferences {
+			fmt.Println("je ref ou pas :", ref.UID)
+			if ref.UID == uiid {
+				fmt.Println("Secret Name:", secret.Name)
+				// Do something with the secret
+			}
+		}
+	}
 	if err != nil && errors.IsNotFound(err) {
 		logger.Info("Secret associated to user not found, user will be deleted and recreated", "user", userResource.Name)
-		err = r.S3Client.DeleteUser(userResource.Name)
+		err = r.S3Client.DeleteUser(userResource.Spec.AccessKey)
 		if err != nil {
 			logger.Error(err, "Could not delete user on S3 server", "user", userResource.Name)
 			return r.setS3UserStatusConditionAndUpdate(ctx, userResource, "OperatorFailed", metav1.ConditionFalse, "S3UserDeletionFailed",
@@ -144,7 +161,7 @@ func handleReconcileS3User(ctx context.Context, err error, r *S3UserReconciler, 
 
 	if !secretKeyValid {
 		logger.Info("Secret for user is invalid")
-		err = r.S3Client.DeleteUser(userResource.Name)
+		err = r.S3Client.DeleteUser(userResource.Spec.AccessKey)
 		if err != nil {
 			logger.Error(err, "Could not delete user on S3 server", "user", userResource.Name)
 			return r.setS3UserStatusConditionAndUpdate(ctx, userResource, "OperatorFailed", metav1.ConditionFalse, "S3UserDeletionFailed",

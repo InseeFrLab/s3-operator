@@ -119,27 +119,27 @@ func (r *S3UserReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	}
 }
 
+
+func deleteSecret(ctx context.Context, r *S3UserReconciler, corev1.Secret{} secret){
+	err = r.Delete(ctx, secret)
+	if err != nil {
+		// Handle error
+	}
+}
+
+
 func handleReconcileS3User(ctx context.Context, err error, r *S3UserReconciler, userResource *s3v1alpha1.S3User, logger logr.Logger) (reconcile.Result, error) {
-	secret := &corev1.Secret{}
+	//secret := &corev1.Secret{}
 	secretsList := &corev1.SecretList{}
 	uiid := userResource.GetUID()
+	secretNameFromUser := userResource.Spec.SecretName
 	fmt.Println("S3 user uuid :", uiid)
-	//err = r.Get(ctx, types.NamespacedName{Name: userResource.Name, Namespace: userResource.Namespace}, secretsList)
-	err = client.CoreV1().Secrets(userResource.Namespace).List(ctx, secretsList, &client.ListOptions{})
-	if err != nil {
-		return reconcile.Result{}, err
-	}
-	for _, secret := range secretsList.Items {
-		fmt.Println("jai des items oua pa s :", secret)
-		for _, ref := range secret.OwnerReferences {
-			fmt.Println("je ref ou pas :", ref.UID)
-			if ref.UID == uiid {
-				fmt.Println("Secret Name:", secret.Name)
-				// Do something with the secret
-			}
-		}
-	}
-	if err != nil && errors.IsNotFound(err) {
+
+	err = r.List(ctx, secretsList, client.InNamespace(userResource.Namespace), client.MatchingLabels{"app.kubernetes.io/created-by": "s3-operator"}) // Use r.Client.List instead of r.List
+	//err = r.List(ctx, secretsList, opts) app.kubernetes.io/created-by
+	//client.MatchingFields{"metadata.ownerReferences.uid": fmt.Sprintf("%s", uiid)}
+	//err = ctx.Secrets(userResource.Namespace).List(ctx, secretsList, &client.ListOptions{})
+	if err != nil && (errors.IsNotFound(err) || len(secretsList.Items) == 0) {
 		logger.Info("Secret associated to user not found, user will be deleted and recreated", "user", userResource.Name)
 		err = r.S3Client.DeleteUser(userResource.Spec.AccessKey)
 		if err != nil {
@@ -154,7 +154,49 @@ func handleReconcileS3User(ctx context.Context, err error, r *S3UserReconciler, 
 			fmt.Sprintf("Cannot locate k8s secrets [%s]", userResource.Name), err)
 	}
 
-	secretKeyValid, err := r.S3Client.CheckUserCredentialsValid(userResource.Name, userResource.Spec.AccessKey, string(secret.Data["secretKey"]))
+	secretToTest := &corev1.Secret{}
+	for _, secret := range secretsList.Items {
+		//fmt.Println("jai des items oua pa s :", secret)
+		fmt.Println("tutu :")
+		fmt.Println("ra :", secret.GetUID())
+
+		for _, ref := range secret.OwnerReferences {
+			fmt.Println("je ref ou pas :", ref.UID)
+			if ref.UID == uiid {
+				// jai pas de secretName je compare avec le nom du s3USer 
+				if secretNameFromUser != "" {
+					if secret.Name != secretNameFromUser{
+						logger.info( "the secret named " + secret.Name + " will be deleted" ) 
+						deleteSecret(ctx, r, secret)
+					}
+					else {
+						secretToTest = secret
+					}
+				}
+				else {
+					if secret.Name != userResource.Name{
+						logger.info( "the secret named " + secret.Name + " will be deleted" )
+						deleteSecret(ctx, r, secret)
+					}
+					else{
+						secretToTest = secret
+					}
+
+				}
+				// deux possibilite soit le s3user a un secretName soit on prend le name du s3User pour comparer les noms
+				fmt.Println("Secret Name:", secretToTest.Name)
+				// Do something with the secret
+			}
+		}
+	}
+	if secretToTest.Name ="" {
+		logger.Error( "Could not locate secret but i delete some ", "secret", userResource.Name)
+		return r.setS3UserStatusConditionAndUpdate(ctx, userResource, "OperatorFailed", metav1.ConditionFalse, "SecretNotFound",fmt.Sprintf("Cannot locate k8s secrets [%s]", userResource.Name), err)
+	}
+
+
+
+	secretKeyValid, err := r.S3Client.CheckUserCredentialsValid(userResource.Name, userResource.Spec.AccessKey, string(secretToTest.Data["secretKey"]))
 	if err != nil {
 		logger.Error(err, "Something went wrong while checking user credential")
 	}

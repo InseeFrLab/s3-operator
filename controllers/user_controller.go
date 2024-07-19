@@ -131,12 +131,9 @@ func handleReconcileS3User(ctx context.Context, err error, r *S3UserReconciler, 
 	secretsList := &corev1.SecretList{}
 	uiid := userResource.GetUID()
 	secretNameFromUser := userResource.Spec.SecretName
-	fmt.Println("S3 user uuid :", uiid)
 
 	err = r.List(ctx, secretsList, client.InNamespace(userResource.Namespace), client.MatchingLabels{"app.kubernetes.io/created-by": "s3-operator"}) // Use r.Client.List instead of r.List
-	//err = r.List(ctx, secretsList, opts) app.kubernetes.io/created-by
-	//client.MatchingFields{"metadata.ownerReferences.uid": fmt.Sprintf("%s", uiid)}
-	//err = ctx.Secrets(userResource.Namespace).List(ctx, secretsList, &client.ListOptions{})
+
 	if err != nil && (errors.IsNotFound(err) || len(secretsList.Items) == 0) {
 		logger.Info("Secret associated to user not found, user will be deleted and recreated", "user", userResource.Name)
 		err = r.S3Client.DeleteUser(userResource.Spec.AccessKey)
@@ -154,16 +151,9 @@ func handleReconcileS3User(ctx context.Context, err error, r *S3UserReconciler, 
 
 	secretToTest := &corev1.Secret{}
 	for _, secret := range secretsList.Items {
-		//fmt.Println("jai des items oua pa s :", secret)
-		fmt.Println("tutu :")
-		fmt.Println("ra :", secret.GetUID())
-
 		for _, ref := range secret.OwnerReferences {
-			fmt.Println("je ref ou pas :", ref.UID)
-			fmt.Println("je pars de :", uiid)
 			if ref.UID == uiid {
-				fmt.Println("je suis rentrer dans le if  :", secretNameFromUser)
-				// jai pas de secretName je compare avec le nom du s3USer
+				// i do  have a spec.secretName i compar with the secret Name
 				if secretNameFromUser != "" {
 					if secret.Name != secretNameFromUser {
 						logger.Info("the secret named " + secret.Name + " will be deleted")
@@ -172,6 +162,7 @@ func handleReconcileS3User(ctx context.Context, err error, r *S3UserReconciler, 
 						logger.Info("well done we found a secret named after the userResource.Spec.SecretName " + secret.Name)
 						secretToTest = &secret
 					}
+					// else old case i dont have  a spec.SecretName i compar with the s3user.name
 				} else {
 					if secret.Name != userResource.Name {
 						logger.Info("the secret named " + secret.Name + " will be deleted")
@@ -183,7 +174,7 @@ func handleReconcileS3User(ctx context.Context, err error, r *S3UserReconciler, 
 				}
 
 				// deux possibilite soit le s3user a un secretName soit on prend le name du s3User pour comparer les noms
-				fmt.Println("the Secret to test :", secretToTest.Name)
+				logger.Info("the Secret found is :", secretToTest.Name)
 				// Do something with the secret
 			}
 
@@ -425,7 +416,7 @@ func (r *S3UserReconciler) newSecretForCR(ctx context.Context, userResource *s3v
 	if userResource.Spec.SecretName != "" {
 		secretName = userResource.Spec.SecretName
 	}
-	logger.Info(" je vais créer un secret " + secretName)
+	logger.Info(" Name of the secret wanted " + secretName)
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        secretName,

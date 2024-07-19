@@ -124,7 +124,7 @@ func handleReconcileS3User(ctx context.Context, err error, r *S3UserReconciler, 
 	err = r.Get(ctx, types.NamespacedName{Name: userResource.Name, Namespace: userResource.Namespace}, secret)
 	if err != nil && errors.IsNotFound(err) {
 		logger.Info("Secret associated to user not found, user will be deleted and recreated", "user", userResource.Name)
-		err = r.S3Client.DeleteUser(userResource.Name)
+		err = r.S3Client.DeleteUser(userResource.Spec.AccessKey)
 		if err != nil {
 			logger.Error(err, "Could not delete user on S3 server", "user", userResource.Name)
 			return r.setS3UserStatusConditionAndUpdate(ctx, userResource, "OperatorFailed", metav1.ConditionFalse, "S3UserDeletionFailed",
@@ -144,7 +144,7 @@ func handleReconcileS3User(ctx context.Context, err error, r *S3UserReconciler, 
 
 	if !secretKeyValid {
 		logger.Info("Secret for user is invalid")
-		err = r.S3Client.DeleteUser(userResource.Name)
+		err = r.S3Client.DeleteUser(userResource.Spec.AccessKey)
 		if err != nil {
 			logger.Error(err, "Could not delete user on S3 server", "user", userResource.Name)
 			return r.setS3UserStatusConditionAndUpdate(ctx, userResource, "OperatorFailed", metav1.ConditionFalse, "S3UserDeletionFailed",
@@ -357,13 +357,9 @@ func (r *S3UserReconciler) newSecretForCR(ctx context.Context, userResource *s3v
 		annotations[k] = v
 	}
 
-	secretName := userResource.Name
-	if userResource.Spec.SecretName != "" {
-		secretName = userResource.Spec.SecretName
-	}
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:        secretName,
+			Name:        userResource.Name,
 			Namespace:   userResource.Namespace,
 			Labels:      labels,
 			Annotations: annotations,

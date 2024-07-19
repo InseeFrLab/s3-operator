@@ -33,10 +33,6 @@ type S3UserSpec struct {
 	// Policies associated to the S3User
 	// +kubebuilder:validation:Optional
 	Policies []string `json:"policies,omitempty"`
-
-	// SecretName associated to the S3User
-	// +kubebuilder:validation:Optional
-	SecretName string `json:"secretName"`
 }
 
 // S3UserStatus defines the observed state of S3User

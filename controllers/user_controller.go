@@ -119,10 +119,11 @@ func (r *S3UserReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	}
 }
 
-func deleteSecret(ctx context.Context, r *S3UserReconciler, secreta corev1.Secret) {
-	err := r.Delete(ctx, &secreta)
+func deleteSecret(ctx context.Context, r *S3UserReconciler, secret corev1.Secret, logger logr.Logger) {
+	logger.Info("the secret named " + secret.Name + " will be deleted")
+	err := r.Delete(ctx, &secret)
 	if err != nil {
-		// Handle error
+		logger.Error(err, "an error occurred while deleting a secret")
 	}
 }
 
@@ -156,26 +157,20 @@ func handleReconcileS3User(ctx context.Context, err error, r *S3UserReconciler, 
 				// i do  have a spec.secretName i compar with the secret Name
 				if secretNameFromUser != "" {
 					if secret.Name != secretNameFromUser {
-						logger.Info("the secret named " + secret.Name + " will be deleted")
-						deleteSecret(ctx, r, secret)
+						deleteSecret(ctx, r, secret, logger)
 					} else {
-						logger.Info("well done we found a secret named after the userResource.Spec.SecretName " + secret.Name)
+						logger.Info("A secret named after the userResource.Spec.SecretName was found " + secret.Name)
 						secretToTest = &secret
 					}
 					// else old case i dont have  a spec.SecretName i compar with the s3user.name
 				} else {
 					if secret.Name != userResource.Name {
-						logger.Info("the secret named " + secret.Name + " will be deleted")
-						deleteSecret(ctx, r, secret)
+						deleteSecret(ctx, r, secret, logger)
 					} else {
-						logger.Info("well done we found a secret named after the userResource.Name " + secret.Name)
+						logger.Info("A secret named after the userResource.Spec.SecretName was found " + secret.Name)
 						secretToTest = &secret
 					}
 				}
-
-				// deux possibilite soit le s3user a un secretName soit on prend le name du s3User pour comparer les noms
-				logger.Info("the Secret found is :", secretToTest.Name)
-				// Do something with the secret
 			}
 
 		}
@@ -416,7 +411,6 @@ func (r *S3UserReconciler) newSecretForCR(ctx context.Context, userResource *s3v
 	if userResource.Spec.SecretName != "" {
 		secretName = userResource.Spec.SecretName
 	}
-	logger.Info(" Name of the secret wanted " + secretName)
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        secretName,

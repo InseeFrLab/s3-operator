@@ -119,12 +119,25 @@ func (r *S3UserReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	}
 }
 
+func deleteSecret(ctx context.Context, r *S3UserReconciler, secret corev1.Secret, logger logr.Logger) {
+	logger.Info("the secret named " + secret.Name + " will be deleted")
+	err := r.Delete(ctx, &secret)
+	if err != nil {
+		logger.Error(err, "an error occurred while deleting a secret")
+	}
+}
+
 func handleReconcileS3User(ctx context.Context, err error, r *S3UserReconciler, userResource *s3v1alpha1.S3User, logger logr.Logger) (reconcile.Result, error) {
-	secret := &corev1.Secret{}
-	err = r.Get(ctx, types.NamespacedName{Name: userResource.Name, Namespace: userResource.Namespace}, secret)
-	if err != nil && errors.IsNotFound(err) {
+	//secret := &corev1.Secret{}
+	secretsList := &corev1.SecretList{}
+	uiid := userResource.GetUID()
+	secretNameFromUser := userResource.Spec.SecretName
+
+	err = r.List(ctx, secretsList, client.InNamespace(userResource.Namespace), client.MatchingLabels{"app.kubernetes.io/created-by": "s3-operator"}) // Use r.Client.List instead of r.List
+
+	if err != nil && (errors.IsNotFound(err) || len(secretsList.Items) == 0) {
 		logger.Info("Secret associated to user not found, user will be deleted and recreated", "user", userResource.Name)
-		err = r.S3Client.DeleteUser(userResource.Name)
+		err = r.S3Client.DeleteUser(userResource.Spec.AccessKey)
 		if err != nil {
 			logger.Error(err, "Could not delete user on S3 server", "user", userResource.Name)
 			return r.setS3UserStatusConditionAndUpdate(ctx, userResource, "OperatorFailed", metav1.ConditionFalse, "S3UserDeletionFailed",
@@ -137,14 +150,51 @@ func handleReconcileS3User(ctx context.Context, err error, r *S3UserReconciler, 
 			fmt.Sprintf("Cannot locate k8s secrets [%s]", userResource.Name), err)
 	}
 
-	secretKeyValid, err := r.S3Client.CheckUserCredentialsValid(userResource.Name, userResource.Spec.AccessKey, string(secret.Data["secretKey"]))
+	secretToTest := &corev1.Secret{}
+	for _, secret := range secretsList.Items {
+		for _, ref := range secret.OwnerReferences {
+			if ref.UID == uiid {
+				// i do  have a spec.secretName i compar with the secret Name
+				if secretNameFromUser != "" {
+					if secret.Name != secretNameFromUser {
+						deleteSecret(ctx, r, secret, logger)
+					} else {
+						logger.Info("A secret named after the userResource.Spec.SecretName was found " + secret.Name)
+						secretToTest = &secret
+					}
+					// else old case i dont have  a spec.SecretName i compar with the s3user.name
+				} else {
+					if secret.Name != userResource.Name {
+						deleteSecret(ctx, r, secret, logger)
+					} else {
+						logger.Info("A secret named after the userResource.Spec.SecretName was found " + secret.Name)
+						secretToTest = &secret
+					}
+				}
+			}
+
+		}
+	}
+	if secretToTest.Name == "" {
+		logger.Info("Could not locate any secret ", "secret", userResource.Name)
+		logger.Info("Secret associated to user not found, user will be deleted and recreated", "user", userResource.Name)
+		err = r.S3Client.DeleteUser(userResource.Spec.AccessKey)
+		if err != nil {
+			logger.Error(err, "Could not delete user on S3 server", "user", userResource.Name)
+			return r.setS3UserStatusConditionAndUpdate(ctx, userResource, "OperatorFailed", metav1.ConditionFalse, "S3UserDeletionFailed",
+				fmt.Sprintf("Deletion of S3user %s on S3 server has failed", userResource.Name), err)
+		}
+		return handleS3UserCreation(ctx, userResource, r)
+	}
+
+	secretKeyValid, err := r.S3Client.CheckUserCredentialsValid(userResource.Name, userResource.Spec.AccessKey, string(secretToTest.Data["secretKey"]))
 	if err != nil {
 		logger.Error(err, "Something went wrong while checking user credential")
 	}
 
 	if !secretKeyValid {
 		logger.Info("Secret for user is invalid")
-		err = r.S3Client.DeleteUser(userResource.Name)
+		err = r.S3Client.DeleteUser(userResource.Spec.AccessKey)
 		if err != nil {
 			logger.Error(err, "Could not delete user on S3 server", "user", userResource.Name)
 			return r.setS3UserStatusConditionAndUpdate(ctx, userResource, "OperatorFailed", metav1.ConditionFalse, "S3UserDeletionFailed",
@@ -176,7 +226,7 @@ func handleReconcileS3User(ctx context.Context, err error, r *S3UserReconciler, 
 	if len(policyToDelete) > 0 {
 		r.S3Client.RemovePoliciesFromUser(userResource.Spec.AccessKey, policyToDelete)
 	}
-	
+
 	if len(policyToAdd) > 0 {
 		r.S3Client.AddPoliciesToUser(userResource.Spec.AccessKey, policyToAdd)
 	}
@@ -357,9 +407,13 @@ func (r *S3UserReconciler) newSecretForCR(ctx context.Context, userResource *s3v
 		annotations[k] = v
 	}
 
+	secretName := userResource.Name
+	if userResource.Spec.SecretName != "" {
+		secretName = userResource.Spec.SecretName
+	}
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:        userResource.Name,
+			Name:        secretName,
 			Namespace:   userResource.Namespace,
 			Labels:      labels,
 			Annotations: annotations,

@@ -110,6 +110,7 @@ func (r *S3UserReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 
 	// If the user does not exist, it is created based on the CR
 	if !found {
+		logger.Info("user doesn't exist and will be created", "user", userResource.Spec.AccessKey)
 		// S3User creation
 		// The user creation happened without any error
 		return handleS3UserCreation(ctx, userResource, r)

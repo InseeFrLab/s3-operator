@@ -289,10 +289,10 @@ func (minioS3Client *MinioS3Client) UserExist(name string) (bool, error) {
 	s3Logger.Info("checking user existence", "user", name)
 	_, _err := minioS3Client.adminClient.GetUserInfo(context.Background(), name)
 	if _err != nil {
-		s3Logger.Info("received code", "user", minio.ToErrorResponse(_err))
 		if minio.ToErrorResponse(_err).StatusCode == 0 {
 			return false, nil
 		}
+		s3Logger.Error(_err, "received code", "user", minio.ToErrorResponse(_err))
 		return false, _err
 	}
 	return true, nil

@@ -133,7 +133,7 @@ func handleReconcileS3User(ctx context.Context, err error, r *S3UserReconciler, 
 	uiid := userResource.GetUID()
 	secretNameFromUser := userResource.Spec.SecretName
 
-	err = r.List(ctx, secretsList, client.InNamespace(userResource.Namespace), client.MatchingLabels{"app.kubernetes.io/created-by": "s3-operator"}) // Use r.Client.List instead of r.List
+	err = r.List(ctx, secretsList, client.InNamespace(userResource.Namespace))
 
 	if err != nil && (errors.IsNotFound(err) || len(secretsList.Items) == 0) {
 		logger.Info("Secret associated to user not found, user will be deleted and recreated", "user", userResource.Name)
@@ -150,8 +150,9 @@ func handleReconcileS3User(ctx context.Context, err error, r *S3UserReconciler, 
 			fmt.Sprintf("Cannot locate k8s secrets [%s]", userResource.Name), err)
 	}
 
-	secretToTest := &corev1.Secret{}
+	secretToTest := corev1.Secret{}
 	for _, secret := range secretsList.Items {
+
 		for _, ref := range secret.OwnerReferences {
 			if ref.UID == uiid {
 				// i do  have a spec.secretName i compar with the secret Name
@@ -160,15 +161,15 @@ func handleReconcileS3User(ctx context.Context, err error, r *S3UserReconciler, 
 						deleteSecret(ctx, r, secret, logger)
 					} else {
 						logger.Info("A secret named after the userResource.Spec.SecretName was found " + secret.Name)
-						secretToTest = &secret
+						secretToTest = secret
 					}
 					// else old case i dont have  a spec.SecretName i compar with the s3user.name
 				} else {
 					if secret.Name != userResource.Name {
 						deleteSecret(ctx, r, secret, logger)
 					} else {
-						logger.Info("A secret named after the userResource.Spec.SecretName was found " + secret.Name)
-						secretToTest = &secret
+						logger.Info("A secret named after the userResource.name was found " + secret.Name)
+						secretToTest = secret
 					}
 				}
 			}

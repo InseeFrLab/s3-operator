@@ -61,7 +61,7 @@ const policyFinalizer = "s3.onyxia.sh/finalizer"
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.14.1/pkg/reconcile
 func (r *PolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	logger := log.FromContext(ctx)
+	logger := log.FromContext(ctx).WithName("plcyCtrl")
 
 	// Checking for policy resource existence
 	policyResource := &s3v1alpha1.Policy{}
@@ -218,7 +218,7 @@ func (r *PolicyReconciler) finalizePolicy(policyResource *s3v1alpha1.Policy) err
 }
 
 func (r *PolicyReconciler) SetPolicyStatusConditionAndUpdate(ctx context.Context, policyResource *s3v1alpha1.Policy, conditionType string, status metav1.ConditionStatus, reason string, message string, srcError error) (ctrl.Result, error) {
-	logger := log.FromContext(ctx)
+	logger := log.FromContext(ctx).WithName("plcyCtrl")
 
 	// We moved away from meta.SetStatusCondition, as the implementation did not allow for updating
 	// lastTransitionTime if a Condition (as identified by Reason instead of Type) was previously

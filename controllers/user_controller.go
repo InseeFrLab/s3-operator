@@ -140,7 +140,6 @@ func (r *S3UserReconciler) handleS3ExistingUser(ctx context.Context, userResourc
 		} else if err.Error() == "S3UserSecretNameMismatch" {
 			logger.Info("A secret with owner reference to the user was found, but its name doesn't match the spec. This is probably due to the S3User's spec changing (specifically spec.secretName being added, changed or removed). The \"old\" secret will be deleted.")
 			r.deleteSecret(ctx, &userOwnedSecret)
-			// return r.handleS3ExistingUser(ctx, userResource)
 		}
 	}
 
@@ -176,7 +175,6 @@ func (r *S3UserReconciler) handleS3ExistingUser(ctx context.Context, userResourc
 		}
 
 		return r.handleS3NewUser(ctx, userResource)
-		//return ctrl.Result{Requeue: true}, nil
 
 	}
 
@@ -250,10 +248,6 @@ func (r *S3UserReconciler) handleS3NewUser(ctx context.Context, userResource *s3
 		return r.setS3UserStatusConditionAndUpdate(ctx, userResource, "OperatorFailed", metav1.ConditionFalse, "S3UserGeneratePasswordFailed",
 			fmt.Sprintf("An error occurred when attempting to generate password for user %s", userResource.Name), err)
 	}
-
-	// TODO : catch a mismatch between the access key in secret and access key in s3user spec. If mismatch,
-	// then act according to whether it was the S3User or the Secret that changed (if said action is different in
-	// each case)
 
 	// Create a new K8S Secret to hold the user's accessKey and secretKey
 	secret, err := r.newSecretForCR(ctx, userResource, map[string][]byte{"accessKey": []byte(userResource.Spec.AccessKey), "secretKey": []byte(secretKey)})
@@ -415,7 +409,6 @@ func (r *S3UserReconciler) getUserSecret(ctx context.Context, userResource *s3v1
 	// TODO : check if the errors.IsNotFound makes sense for r.List
 	// if err != nil && (errors.IsNotFound(err) || len(secretsList.Items) == 0) {
 	if err != nil {
-		// return userSecret, utilerrors.NewAggregate([]error{fmt.Errorf("An error occurred when listing the secrets in user's namespace"), err})
 		logger.Error(err, "An error occurred while listing the secrets in user's namespace")
 		return userSecret, fmt.Errorf("SecretListingFailed")
 	}
@@ -430,6 +423,7 @@ func (r *S3UserReconciler) getUserSecret(ctx context.Context, userResource *s3v1
 	// In case of mismatch, that secret is deleted (and will be recreated) ; if there is a match,
 	// it will be used for state comparison.
 	uid := userResource.GetUID()
+
 	// cmp.Or takes the first non "zero" value, see https://pkg.go.dev/cmp#Or
 	effectiveS3UserSecretName := cmp.Or(userResource.Spec.SecretName, userResource.Name)
 	for _, secret := range secretsList.Items {
@@ -465,8 +459,7 @@ func (r *S3UserReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		// by a S3User is created/updated/deleted. In other words, even when creating a single S3User,
 		// there is going to be several iterations.
 		Owns(&corev1.Secret{}).
-		// TODO : implement a real strategy for event filtering ; for now just using the example from OpSDK doc
-		// (https://sdk.operatorframework.io/docs/building-operators/golang/references/event-filtering/)
+		// See : https://sdk.operatorframework.io/docs/building-operators/golang/references/event-filtering/
 		WithEventFilter(predicate.Funcs{
 
 			// Ignore updates to CR status in which case metadata.Generation does not change,

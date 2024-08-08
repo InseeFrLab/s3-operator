@@ -254,18 +254,18 @@ func (minioS3Client *MinioS3Client) DeletePolicy(name string) error {
 // USER   methods //
 ////////////////////
 
-func (minioS3Client *MinioS3Client) CreateUser(name string, password string) error {
-	s3Logger.Info("Creating user", "user", name)
-	err := minioS3Client.adminClient.AddUser(context.Background(), name, password)
+func (minioS3Client *MinioS3Client) CreateUser(accessKey string, secretKey string) error {
+	s3Logger.Info("Creating user", "accessKey", accessKey)
+	err := minioS3Client.adminClient.AddUser(context.Background(), accessKey, secretKey)
 	if err != nil {
-		s3Logger.Error(err, "Error while creating user", "user", name)
+		s3Logger.Error(err, "Error while creating user", "user", accessKey)
 		return err
 	}
 	return nil
 }
 
 func (minioS3Client *MinioS3Client) AddServiceAccountForUser(name string, accessKey string, secretKey string) error {
-	s3Logger.Info("Adding service account for user", "user", name)
+	s3Logger.Info("Adding service account for user", "user", name, "accessKey", accessKey)
 
 	opts := madmin.AddServiceAccountReq{
 		AccessKey:   accessKey,
@@ -285,27 +285,37 @@ func (minioS3Client *MinioS3Client) AddServiceAccountForUser(name string, access
 
 }
 
-func (minioS3Client *MinioS3Client) UserExist(name string) (bool, error) {
-	s3Logger.Info("checking user existence", "user", name)
-	_, _err := minioS3Client.adminClient.GetUserInfo(context.Background(), name)
+func (minioS3Client *MinioS3Client) UserExist(accessKey string) (bool, error) {
+	s3Logger.Info("checking user existence", "accessKey", accessKey)
+	_, _err := minioS3Client.adminClient.GetUserInfo(context.Background(), accessKey)
 	if _err != nil {
-		s3Logger.Info("received code", "user", minio.ToErrorResponse(_err))
-		if minio.ToErrorResponse(_err).StatusCode == 0 {
+		if madmin.ToErrorResponse(_err).Code == "XMinioAdminNoSuchUser" {
 			return false, nil
 		}
+		s3Logger.Error(_err, "an error occurred when checking user's existence")
 		return false, _err
 	}
+
 	return true, nil
 }
 
-func (minioS3Client *MinioS3Client) DeleteUser(name string) error {
-	s3Logger.Info("delete user", "user", name)
-	return minioS3Client.adminClient.RemoveUser(context.Background(), name)
+func (minioS3Client *MinioS3Client) DeleteUser(accessKey string) error {
+	s3Logger.Info("delete user with accessKey", "accessKey", accessKey)
+	err := minioS3Client.adminClient.RemoveUser(context.Background(), accessKey)
+	if err != nil {
+		if madmin.ToErrorResponse(err).Code == "XMinioAdminNoSuchUser" {
+			s3Logger.Info("the user was already deleted from s3 backend")
+			return nil
+		}
+		s3Logger.Error(err, "an error occurred when attempting to delete the user")
+		return err
+	}
+	return nil
 }
 
-func (minioS3Client *MinioS3Client) GetUserPolicies(name string) ([]string, error) {
-	s3Logger.Info("Get user policies", "user", name)
-	userInfo, err := minioS3Client.adminClient.GetUserInfo(context.Background(), name)
+func (minioS3Client *MinioS3Client) GetUserPolicies(accessKey string) ([]string, error) {
+	s3Logger.Info("Get user policies", "accessKey", accessKey)
+	userInfo, err := minioS3Client.adminClient.GetUserInfo(context.Background(), accessKey)
 	if err != nil {
 		s3Logger.Error(err, "Error when getting userInfo")
 
@@ -315,7 +325,7 @@ func (minioS3Client *MinioS3Client) GetUserPolicies(name string) ([]string, erro
 }
 
 func (minioS3Client *MinioS3Client) CheckUserCredentialsValid(name string, accessKey string, secretKey string) (bool, error) {
-	s3Logger.Info("Check credential for user", "user", name)
+	s3Logger.Info("Check credentials for user", "user", name, "accessKey", accessKey)
 	minioTestClientOptions := &minio.Options{
 		Creds:  credentials.NewStaticV4(accessKey, secretKey, ""),
 		Region: minioS3Client.s3Config.Region,
@@ -324,42 +334,63 @@ func (minioS3Client *MinioS3Client) CheckUserCredentialsValid(name string, acces
 	addTransportOptions(&minioS3Client.s3Config, minioTestClientOptions)
 	minioTestClient, err := minio.New(minioS3Client.s3Config.S3UrlEndpoint, minioTestClientOptions)
 	if err != nil {
-		s3Logger.Error(err, "An error occurred while creating a new minio test client")
+		s3Logger.Error(err, "An error occurred while creating a new Minio test client")
 	}
 
 	_, err = minioTestClient.ListBuckets(context.Background())
 	if err != nil {
-		s3Logger.Error(err, "An error occurred while listing bucket")
-		return false, err
+		errAsResponse := minio.ToErrorResponse(err)
+		if errAsResponse.Code == "SignatureDoesNotMatch" {
+			s3Logger.Info("the user credentials appear to be invalid", "accessKey", accessKey, "s3BackendError", errAsResponse)
+			return false, nil
+		} else if errAsResponse.Code == "InvalidAccessKeyId" {
+			s3Logger.Info("this accessKey does not exist on the s3 backend", "accessKey", accessKey, "s3BackendError", errAsResponse)
+			return false, nil
+		} else {
+			s3Logger.Error(err, "an error occurred while checking if the S3 user's credentials were valid", "accessKey", accessKey, "code", errAsResponse.Code)
+			return false, err
+		}
 	}
 	return true, nil
 }
 
-func (minioS3Client *MinioS3Client) RemovePoliciesFromUser(username string, policies []string) error {
-	s3Logger.Info(fmt.Sprintf("Remove policy [%s] from user [%s]", policies, username))
+func (minioS3Client *MinioS3Client) RemovePoliciesFromUser(accessKey string, policies []string) error {
+	s3Logger.Info(fmt.Sprintf("Remove policy [%s] from user [%s]", policies, accessKey))
 
 	opts := madmin.PolicyAssociationReq{
 		Policies: policies,
-		User:     username,
+		User:     accessKey,
 	}
 
 	_, err := minioS3Client.adminClient.DetachPolicy(context.Background(), opts)
 
 	if err != nil {
+		errAsResp := madmin.ToErrorResponse(err)
+		if errAsResp.Code == "XMinioAdminPolicyChangeAlreadyApplied" {
+			s3Logger.Info("The policy change has no net effect")
+			return nil
+		}
+		s3Logger.Error(err, "an error occurred when attaching a policy to the user", "code", errAsResp.Code)
 		return err
 	}
 
 	return nil
 }
 
-func (minioS3Client *MinioS3Client) AddPoliciesToUser(username string, policies []string) error {
-	s3Logger.Info("Adding policies to user", "user", username, "policies", policies)
+func (minioS3Client *MinioS3Client) AddPoliciesToUser(accessKey string, policies []string) error {
+	s3Logger.Info("Adding policies to user", "user", accessKey, "policies", policies)
 	opts := madmin.PolicyAssociationReq{
-		User:     username,
+		User:     accessKey,
 		Policies: policies,
 	}
 	_, err := minioS3Client.adminClient.AttachPolicy(context.Background(), opts)
 	if err != nil {
+		errAsResp := madmin.ToErrorResponse(err)
+		if errAsResp.Code == "XMinioAdminPolicyChangeAlreadyApplied" {
+			s3Logger.Info("The policy change has no net effect")
+			return nil
+		}
+		s3Logger.Error(err, "an error occurred when attaching a policy to the user", "code", errAsResp.Code)
 		return err
 	}
 	return nil

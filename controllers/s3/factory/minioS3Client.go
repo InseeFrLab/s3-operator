@@ -287,7 +287,7 @@ func (minioS3Client *MinioS3Client) AddServiceAccountForUser(name string, access
 
 func (minioS3Client *MinioS3Client) UserExist(accessKey string) (bool, error) {
 	s3Logger.Info("checking user existence", "accessKey", accessKey)
-	userinfo, _err := minioS3Client.adminClient.GetUserInfo(context.Background(), accessKey)
+	_, _err := minioS3Client.adminClient.GetUserInfo(context.Background(), accessKey)
 	if _err != nil {
 		if madmin.ToErrorResponse(_err).Code == "XMinioAdminNoSuchUser" {
 			return false, nil
@@ -296,7 +296,6 @@ func (minioS3Client *MinioS3Client) UserExist(accessKey string) (bool, error) {
 		return false, _err
 	}
 
-	s3Logger.Info("DEBUG : userinfo", "userinfo", userinfo)
 	return true, nil
 }
 

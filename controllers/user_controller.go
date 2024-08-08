@@ -69,7 +69,6 @@ const (
 func (r *S3UserReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := log.FromContext(ctx).WithName("userCtrl")
 
-	logger.Info("DEBUG : new reconcile loop")
 	// Checking for userResource existence
 	userResource := &s3v1alpha1.S3User{}
 	err := r.Get(ctx, req.NamespacedName, userResource)
@@ -145,10 +144,6 @@ func (r *S3UserReconciler) handleS3ExistingUser(ctx context.Context, userResourc
 		}
 	}
 
-	// If the secret to an existing S3User can't be found, it should be because
-	// an end user deleted by (either by mistake or intentionally). In which case,
-	// TODO? : full user deletion + recreation is simpler, but if needed we should be
-	// able to instead just recreate the secret
 	if userOwnedSecret.Name == "" {
 		logger.Info("Secret associated to user not found, user will be deleted from the S3 backend, then recreated with a secret")
 		err = r.S3Client.DeleteUser(userResource.Spec.AccessKey)
@@ -200,7 +195,7 @@ func (r *S3UserReconciler) handleS3ExistingUser(ctx context.Context, userResourc
 	for _, policy := range userPolicies {
 		policyFound := slices.Contains(userResource.Spec.Policies, policy)
 		if !policyFound {
-			logger.Info(fmt.Sprintf("S3User policy definition doesn't contains policy %s", policy))
+			logger.Info(fmt.Sprintf("S3User policy definition doesn't contain policy %s", policy))
 			policyToDelete = append(policyToDelete, policy)
 		}
 	}
@@ -208,7 +203,7 @@ func (r *S3UserReconciler) handleS3ExistingUser(ctx context.Context, userResourc
 	for _, policy := range userResource.Spec.Policies {
 		policyFound := slices.Contains(userPolicies, policy)
 		if !policyFound {
-			logger.Info(fmt.Sprintf("S3User policy definition must contains policy %s", policy))
+			logger.Info(fmt.Sprintf("S3User policy definition must contain policy %s", policy))
 			policyToAdd = append(policyToAdd, policy)
 		}
 	}
@@ -255,9 +250,6 @@ func (r *S3UserReconciler) handleS3NewUser(ctx context.Context, userResource *s3
 		return r.setS3UserStatusConditionAndUpdate(ctx, userResource, "OperatorFailed", metav1.ConditionFalse, "S3UserGeneratePasswordFailed",
 			fmt.Sprintf("An error occurred when attempting to generate password for user %s", userResource.Name), err)
 	}
-	if userResource.Name == "s3u-test" {
-		logger.Info("DEBUG : new secretKey generated", "secretKey", secretKey)
-	}
 
 	// TODO : catch a mismatch between the access key in secret and access key in s3user spec. If mismatch,
 	// then act according to whether it was the S3User or the Secret that changed (if said action is different in
@@ -276,7 +268,6 @@ func (r *S3UserReconciler) handleS3NewUser(ctx context.Context, userResource *s3
 	// the user's spec (not matching the owner reference) exists
 	existingK8sSecret := &corev1.Secret{}
 	err = r.Get(ctx, types.NamespacedName{Name: secret.Name, Namespace: secret.Namespace}, existingK8sSecret)
-	logger.Info("DEBUG : existingK8sSecret", "existingK8sSecret", existingK8sSecret)
 
 	// If none exist : we create the user, then the secret
 	if err != nil && errors.IsNotFound(err) {
@@ -445,7 +436,6 @@ func (r *S3UserReconciler) getUserSecret(ctx context.Context, userResource *s3v1
 		for _, ref := range secret.OwnerReferences {
 			if ref.UID == uid {
 				if secret.Name != effectiveS3UserSecretName {
-					logger.Info("The secret with owner reference to the S3User doesn't match the specified name.", "expectedName", effectiveS3UserSecretName, "actualName", secret.Name)
 					return secret, fmt.Errorf("S3UserSecretNameMismatch")
 				} else {
 					userSecret = secret
@@ -460,7 +450,6 @@ func (r *S3UserReconciler) getUserSecret(ctx context.Context, userResource *s3v1
 
 func (r *S3UserReconciler) deleteSecret(ctx context.Context, secret *corev1.Secret) {
 	logger := log.FromContext(ctx).WithName("userCtrl")
-	logger.Info("the secret named " + secret.Name + " will be deleted")
 	err := r.Delete(ctx, secret)
 	if err != nil {
 		logger.Error(err, "an error occurred while deleting a secret")
@@ -493,13 +482,6 @@ func (r *S3UserReconciler) SetupWithManager(mgr ctrl.Manager) error {
 					secretUpdate = (e.ObjectNew.(*corev1.Secret) != nil)
 				}
 
-				// newUser, _ := e.ObjectNew.(*s3v1alpha1.S3User)
-				// oldUser, _ := e.ObjectOld.(*s3v1alpha1.S3User)
-				// letEventThrough := e.ObjectOld.GetGeneration() != e.ObjectNew.GetGeneration()
-				// if letEventThrough {
-				// 	filterLogger.Info("DEBUG : update event", "objectNew", newUser, "objectOld", oldUser)
-				// }
-
 				return e.ObjectOld.GetGeneration() != e.ObjectNew.GetGeneration() || secretUpdate
 			},
 			// Ignore create events caused by the underlying secret's creation
@@ -507,7 +489,6 @@ func (r *S3UserReconciler) SetupWithManager(mgr ctrl.Manager) error {
 				user, _ := e.Object.(*s3v1alpha1.S3User)
 				return user != nil
 			},
-			// TODO : must we manage differently user deletion and secret deletion ?
 			DeleteFunc: func(e event.DeleteEvent) bool {
 				// Evaluates to false if the object has been confirmed deleted.
 				return !e.DeleteStateUnknown

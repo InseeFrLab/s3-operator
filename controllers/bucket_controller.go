@@ -58,7 +58,7 @@ const bucketFinalizer = "s3.onyxia.sh/finalizer"
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.14.1/pkg/reconcile
 func (r *BucketReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	logger := log.FromContext(ctx).WithName("bcktCtrl")
+	logger := log.FromContext(ctx)
 
 	// Checking for bucket resource existence
 	bucketResource := &s3v1alpha1.Bucket{}
@@ -244,7 +244,7 @@ func (r *BucketReconciler) finalizeBucket(bucketResource *s3v1alpha1.Bucket) err
 }
 
 func (r *BucketReconciler) SetBucketStatusConditionAndUpdate(ctx context.Context, bucketResource *s3v1alpha1.Bucket, conditionType string, status metav1.ConditionStatus, reason string, message string, srcError error) (ctrl.Result, error) {
-	logger := log.FromContext(ctx).WithName("bcktCtrl")
+	logger := log.FromContext(ctx)
 
 	// We moved away from meta.SetStatusCondition, as the implementation did not allow for updating
 	// lastTransitionTime if a Condition (as identified by Reason instead of Type) was previously

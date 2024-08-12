@@ -9,7 +9,7 @@ import (
 )
 
 var (
-	s3Logger = ctrl.Log.WithName("s3Client")
+	s3Logger = ctrl.Log.WithValues("logger", "s3client")
 )
 
 type S3Client interface {

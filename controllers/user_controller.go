@@ -67,7 +67,7 @@ const (
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.14.1/pkg/reconcile
 func (r *S3UserReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	logger := log.FromContext(ctx).WithName("userCtrl")
+	logger := log.FromContext(ctx)
 
 	// Checking for userResource existence
 	userResource := &s3v1alpha1.S3User{}
@@ -120,7 +120,7 @@ func (r *S3UserReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 }
 
 func (r *S3UserReconciler) handleS3ExistingUser(ctx context.Context, userResource *s3v1alpha1.S3User) (reconcile.Result, error) {
-	logger := log.FromContext(ctx).WithName("userCtrl")
+	logger := log.FromContext(ctx)
 
 	// --- Begin Secret management section
 
@@ -239,7 +239,7 @@ func (r *S3UserReconciler) handleS3ExistingUser(ctx context.Context, userResourc
 }
 
 func (r *S3UserReconciler) handleS3NewUser(ctx context.Context, userResource *s3v1alpha1.S3User) (reconcile.Result, error) {
-	logger := log.FromContext(ctx).WithName("userCtrl")
+	logger := log.FromContext(ctx)
 
 	// Generating a random secret key
 	secretKey, err := password.Generate(20, true, false, true)
@@ -357,7 +357,7 @@ func (r *S3UserReconciler) handleS3NewUser(ctx context.Context, userResource *s3
 }
 
 func (r *S3UserReconciler) addPoliciesToUser(ctx context.Context, userResource *s3v1alpha1.S3User) error {
-	logger := log.FromContext(ctx).WithName("userCtrl")
+	logger := log.FromContext(ctx)
 	policies := userResource.Spec.Policies
 	if policies != nil {
 		err := r.S3Client.AddPoliciesToUser(userResource.Spec.AccessKey, policies)
@@ -370,7 +370,7 @@ func (r *S3UserReconciler) addPoliciesToUser(ctx context.Context, userResource *
 }
 
 func (r *S3UserReconciler) handleS3UserDeletion(ctx context.Context, userResource *s3v1alpha1.S3User) (reconcile.Result, error) {
-	logger := log.FromContext(ctx).WithName("userCtrl")
+	logger := log.FromContext(ctx)
 
 	if controllerutil.ContainsFinalizer(userResource, userFinalizer) {
 		// Run finalization logic for S3UserFinalizer. If the finalization logic fails, don't remove the finalizer so that we can retry during the next reconciliation.
@@ -397,7 +397,7 @@ func (r *S3UserReconciler) handleS3UserDeletion(ctx context.Context, userResourc
 }
 
 func (r *S3UserReconciler) getUserSecret(ctx context.Context, userResource *s3v1alpha1.S3User) (corev1.Secret, error) {
-	logger := log.FromContext(ctx).WithName("userCtrl")
+	logger := log.FromContext(ctx)
 
 	// Listing every secrets in the S3User's namespace, as a first step
 	// to get the actual secret matching the S3User proper.
@@ -443,7 +443,7 @@ func (r *S3UserReconciler) getUserSecret(ctx context.Context, userResource *s3v1
 }
 
 func (r *S3UserReconciler) deleteSecret(ctx context.Context, secret *corev1.Secret) {
-	logger := log.FromContext(ctx).WithName("userCtrl")
+	logger := log.FromContext(ctx)
 	err := r.Delete(ctx, secret)
 	if err != nil {
 		logger.Error(err, "an error occurred while deleting a secret")
@@ -492,7 +492,7 @@ func (r *S3UserReconciler) SetupWithManager(mgr ctrl.Manager) error {
 }
 
 func (r *S3UserReconciler) setS3UserStatusConditionAndUpdate(ctx context.Context, userResource *s3v1alpha1.S3User, conditionType string, status metav1.ConditionStatus, reason string, message string, srcError error) (ctrl.Result, error) {
-	logger := log.FromContext(ctx).WithName("userCtrl")
+	logger := log.FromContext(ctx)
 
 	// We moved away from meta.SetStatusCondition, as the implementation did not allow for updating
 	// lastTransitionTime if a Condition (as identified by Reason instead of Type) was previously
@@ -524,7 +524,7 @@ func (r *S3UserReconciler) finalizeS3User(userResource *s3v1alpha1.S3User) error
 // newSecretForCR returns a secret with the same name/namespace as the CR.
 // The secret will include all labels and annotations from the CR.
 func (r *S3UserReconciler) newSecretForCR(ctx context.Context, userResource *s3v1alpha1.S3User, data map[string][]byte) (*corev1.Secret, error) {
-	logger := log.FromContext(ctx).WithName("userCtrl")
+	logger := log.FromContext(ctx)
 
 	labels := map[string]string{}
 	for k, v := range userResource.ObjectMeta.Labels {

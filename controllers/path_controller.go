@@ -58,7 +58,7 @@ const pathFinalizer = "s3.onyxia.sh/finalizer"
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.14.1/pkg/reconcile
 func (r *PathReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	logger := log.FromContext(ctx).WithName("pathCtrl")
+	logger := log.FromContext(ctx)
 
 	// Checking for path resource existence
 	pathResource := &s3v1alpha1.Path{}
@@ -184,7 +184,7 @@ func (r *PathReconciler) SetupWithManager(mgr ctrl.Manager) error {
 }
 
 func (r *PathReconciler) finalizePath(pathResource *s3v1alpha1.Path) error {
-	logger := log.Log.WithName("finalize")
+	logger := log.Log.WithValues("controller", "path")
 	if r.PathDeletion {
 		var failedPaths []string = make([]string, 0)
 		for _, path := range pathResource.Spec.Paths {
@@ -210,7 +210,7 @@ func (r *PathReconciler) finalizePath(pathResource *s3v1alpha1.Path) error {
 }
 
 func (r *PathReconciler) SetPathStatusConditionAndUpdate(ctx context.Context, pathResource *s3v1alpha1.Path, conditionType string, status metav1.ConditionStatus, reason string, message string, srcError error) (ctrl.Result, error) {
-	logger := log.FromContext(ctx).WithName("pathCtrl")
+	logger := log.FromContext(ctx)
 
 	// We moved away from meta.SetStatusCondition, as the implementation did not allow for updating
 	// lastTransitionTime if a Condition (as identified by Reason instead of Type) was previously

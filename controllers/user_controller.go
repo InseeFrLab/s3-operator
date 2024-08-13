@@ -17,6 +17,7 @@ limitations under the License.
 package controllers
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"slices"
@@ -41,7 +42,6 @@ import (
 	"github.com/InseeFrLab/s3-operator/controllers/s3/factory"
 	utils "github.com/InseeFrLab/s3-operator/controllers/utils"
 	password "github.com/InseeFrLab/s3-operator/controllers/utils/password"
-	"github.com/go-logr/logr"
 )
 
 // S3UserReconciler reconciles a S3User object
@@ -74,29 +74,30 @@ func (r *S3UserReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	err := r.Get(ctx, req.NamespacedName, userResource)
 	if err != nil {
 		if errors.IsNotFound(err) {
-			logger.Info(fmt.Sprintf("S3User CRD %s has been removed. NOOP", req.Name))
+			logger.Info(fmt.Sprintf("The S3User CR %s (or its owned Secret) has been removed. NOOP", req.Name))
 			return ctrl.Result{}, nil
 		}
+		logger.Error(err, "An error occurred when fetching the S3User from Kubernetes")
 		return ctrl.Result{}, err
 	}
 
 	// Check if the userResource instance is marked to be deleted, which is
 	// indicated by the deletion timestamp being set. The object will be deleted.
-
 	if userResource.GetDeletionTimestamp() != nil {
 		logger.Info("userResource have been marked for deletion")
-		return handleS3UserDeletion(ctx, userResource, r, logger, err)
+		return r.handleS3UserDeletion(ctx, userResource)
 	}
 
 	// Add finalizer for this CR
 	if !controllerutil.ContainsFinalizer(userResource, userFinalizer) {
+		logger.Info("adding finalizer to user")
+
 		controllerutil.AddFinalizer(userResource, userFinalizer)
 		err = r.Update(ctx, userResource)
 		if err != nil {
 			logger.Error(err, "an error occurred when adding finalizer from user", "user", userResource.Name)
-			// return ctrl.Result{}, err
 			return r.setS3UserStatusConditionAndUpdate(ctx, userResource, "OperatorFailed", metav1.ConditionFalse, "S3UserFinalizerAddFailed",
-				fmt.Sprintf("An error occurred when attempting to add the finalizer from user [%s]", userResource.Name), err)
+				fmt.Sprintf("An error occurred when attempting to add the finalizer from user %s", userResource.Name), err)
 		}
 	}
 
@@ -105,113 +106,94 @@ func (r *S3UserReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	if err != nil {
 		logger.Error(err, "an error occurred while checking the existence of a user", "user", userResource.Name)
 		return r.setS3UserStatusConditionAndUpdate(ctx, userResource, "OperatorFailed", metav1.ConditionFalse, "S3UserExistenceCheckFailed",
-			fmt.Sprintf("Obtaining user[%s] info from S3 instance has failed", userResource.Name), err)
+			fmt.Sprintf("The check for user %s's existence on the S3 backend has failed", userResource.Name), err)
 	}
 
 	// If the user does not exist, it is created based on the CR
 	if !found {
-		// S3User creation
-		// The user creation happened without any error
-		return handleS3UserCreation(ctx, userResource, r)
-	} else {
-		// handle user reconciliation with its CR (or NOOP)
-		return handleReconcileS3User(ctx, err, r, userResource, logger)
+		logger.Info("this user doesn't exist on the S3 backend and will be created", "accessKey", userResource.Spec.AccessKey)
+		return r.handleS3NewUser(ctx, userResource)
 	}
+	logger.Info("this user already exists on the S3 backend and will be reconciled", "accessKey", userResource.Spec.AccessKey)
+	return r.handleS3ExistingUser(ctx, userResource)
+
 }
 
-func deleteSecret(ctx context.Context, r *S3UserReconciler, secret corev1.Secret, logger logr.Logger) {
-	logger.Info("the secret named " + secret.Name + " will be deleted")
-	err := r.Delete(ctx, &secret)
+func (r *S3UserReconciler) handleS3ExistingUser(ctx context.Context, userResource *s3v1alpha1.S3User) (reconcile.Result, error) {
+	logger := log.FromContext(ctx)
+
+	// --- Begin Secret management section
+
+	userOwnedSecret, err := r.getUserSecret(ctx, userResource)
 	if err != nil {
-		logger.Error(err, "an error occurred while deleting a secret")
-	}
-}
+		if err.Error() == "SecretListingFailed" {
+			logger.Error(err, "An error occurred when trying to obtain the user's secret. The user will be deleted from S3 backend and recreated with a secret.")
 
-func handleReconcileS3User(ctx context.Context, err error, r *S3UserReconciler, userResource *s3v1alpha1.S3User, logger logr.Logger) (reconcile.Result, error) {
-	//secret := &corev1.Secret{}
-	secretsList := &corev1.SecretList{}
-	uiid := userResource.GetUID()
-	secretNameFromUser := userResource.Spec.SecretName
-
-	err = r.List(ctx, secretsList, client.InNamespace(userResource.Namespace))
-
-	if err != nil && (errors.IsNotFound(err) || len(secretsList.Items) == 0) {
-		logger.Info("Secret associated to user not found, user will be deleted and recreated", "user", userResource.Name)
-		err = r.S3Client.DeleteUser(userResource.Spec.AccessKey)
-		if err != nil {
-			logger.Error(err, "Could not delete user on S3 server", "user", userResource.Name)
-			return r.setS3UserStatusConditionAndUpdate(ctx, userResource, "OperatorFailed", metav1.ConditionFalse, "S3UserDeletionFailed",
-				fmt.Sprintf("Deletion of S3user %s on S3 server has failed", userResource.Name), err)
-		}
-		return handleS3UserCreation(ctx, userResource, r)
-	} else if err != nil {
-		logger.Error(err, "Could not locate secret", "secret", userResource.Name)
-		return r.setS3UserStatusConditionAndUpdate(ctx, userResource, "OperatorFailed", metav1.ConditionFalse, "SecretNotFound",
-			fmt.Sprintf("Cannot locate k8s secrets [%s]", userResource.Name), err)
-	}
-
-	secretToTest := corev1.Secret{}
-	for _, secret := range secretsList.Items {
-
-		for _, ref := range secret.OwnerReferences {
-			if ref.UID == uiid {
-				// i do  have a spec.secretName i compar with the secret Name
-				if secretNameFromUser != "" {
-					if secret.Name != secretNameFromUser {
-						deleteSecret(ctx, r, secret, logger)
-					} else {
-						logger.Info("A secret named after the userResource.Spec.SecretName was found " + secret.Name)
-						secretToTest = secret
-					}
-					// else old case i dont have  a spec.SecretName i compar with the s3user.name
-				} else {
-					if secret.Name != userResource.Name {
-						deleteSecret(ctx, r, secret, logger)
-					} else {
-						logger.Info("A secret named after the userResource.name was found " + secret.Name)
-						secretToTest = secret
-					}
-				}
+			r.deleteSecret(ctx, &userOwnedSecret)
+			err = r.S3Client.DeleteUser(userResource.Spec.AccessKey)
+			if err != nil {
+				logger.Error(err, "Could not delete user on S3 server", "user", userResource.Name)
+				return r.setS3UserStatusConditionAndUpdate(ctx, userResource, "OperatorFailed", metav1.ConditionFalse, "S3UserDeletionFailed",
+					fmt.Sprintf("Deletion of S3user %s on S3 server has failed", userResource.Name), err)
 			}
-
+			return r.handleS3NewUser(ctx, userResource)
+		} else if err.Error() == "S3UserSecretNameMismatch" {
+			logger.Info("A secret with owner reference to the user was found, but its name doesn't match the spec. This is probably due to the S3User's spec changing (specifically spec.secretName being added, changed or removed). The \"old\" secret will be deleted.")
+			r.deleteSecret(ctx, &userOwnedSecret)
 		}
 	}
-	if secretToTest.Name == "" {
-		logger.Info("Could not locate any secret ", "secret", userResource.Name)
-		logger.Info("Secret associated to user not found, user will be deleted and recreated", "user", userResource.Name)
+
+	if userOwnedSecret.Name == "" {
+		logger.Info("Secret associated to user not found, user will be deleted from the S3 backend, then recreated with a secret")
 		err = r.S3Client.DeleteUser(userResource.Spec.AccessKey)
 		if err != nil {
 			logger.Error(err, "Could not delete user on S3 server", "user", userResource.Name)
 			return r.setS3UserStatusConditionAndUpdate(ctx, userResource, "OperatorFailed", metav1.ConditionFalse, "S3UserDeletionFailed",
-				fmt.Sprintf("Deletion of S3user %s on S3 server has failed", userResource.Name), err)
+				fmt.Sprintf("Deletion of S3User %s on S3 server has failed", userResource.Name), err)
 		}
-		return handleS3UserCreation(ctx, userResource, r)
+		return r.handleS3NewUser(ctx, userResource)
 	}
 
-	secretKeyValid, err := r.S3Client.CheckUserCredentialsValid(userResource.Name, userResource.Spec.AccessKey, string(secretToTest.Data["secretKey"]))
+	// If a matching secret is found, then we check if it is still valid, as in : do the credentials it
+	// contains still allow authenticating the S3User on the backend ? If not, the user is deleted and recreated.
+	// credentialsValid, err := r.S3Client.CheckUserCredentialsValid(userResource.Name, userResource.Spec.AccessKey, string(userOwnedSecret.Data["secretKey"]))
+	credentialsValid, err := r.S3Client.CheckUserCredentialsValid(userResource.Name, string(userOwnedSecret.Data["accessKey"]), string(userOwnedSecret.Data["secretKey"]))
 	if err != nil {
-		logger.Error(err, "Something went wrong while checking user credential")
+		logger.Error(err, "An error occurred when checking if user credentials were valid", "user", userResource.Name)
+		return r.setS3UserStatusConditionAndUpdate(ctx, userResource, "OperatorFailed", metav1.ConditionFalse, "S3UserCredentialsCheckFailed",
+			fmt.Sprintf("Checking the S3User %s's credentials on S3 server has failed", userResource.Name), err)
 	}
 
-	if !secretKeyValid {
-		logger.Info("Secret for user is invalid")
+	if !credentialsValid {
+		logger.Info("The secret containing the credentials will be deleted, and the user will be deleted from the S3 backend, then recreated (through another reconcile)")
+		r.deleteSecret(ctx, &userOwnedSecret)
 		err = r.S3Client.DeleteUser(userResource.Spec.AccessKey)
 		if err != nil {
 			logger.Error(err, "Could not delete user on S3 server", "user", userResource.Name)
 			return r.setS3UserStatusConditionAndUpdate(ctx, userResource, "OperatorFailed", metav1.ConditionFalse, "S3UserDeletionFailed",
 				fmt.Sprintf("Deletion of S3user %s on S3 server has failed", userResource.Name), err)
 		}
-		return handleS3UserCreation(ctx, userResource, r)
+
+		return r.handleS3NewUser(ctx, userResource)
+
 	}
 
-	logger.Info("Check user policies is correct")
+	// --- End Secret management section
+
+	logger.Info("Checking user policies")
 	userPolicies, err := r.S3Client.GetUserPolicies(userResource.Spec.AccessKey)
+	if err != nil {
+		logger.Error(err, "Could not check the user's policies")
+		return r.setS3UserStatusConditionAndUpdate(ctx, userResource, "OperatorFailed", metav1.ConditionFalse, "S3UserPolicyCheckFailed",
+			fmt.Sprintf("Checking the S3user %s's policies has failed", userResource.Name), err)
+	}
+
 	policyToDelete := []string{}
 	policyToAdd := []string{}
 	for _, policy := range userPolicies {
 		policyFound := slices.Contains(userResource.Spec.Policies, policy)
 		if !policyFound {
-			logger.Info(fmt.Sprintf("S3User policy definition doesn't contains policy %s", policy))
+			logger.Info(fmt.Sprintf("S3User policy definition doesn't contain policy %s", policy))
 			policyToDelete = append(policyToDelete, policy)
 		}
 	}
@@ -219,140 +201,284 @@ func handleReconcileS3User(ctx context.Context, err error, r *S3UserReconciler, 
 	for _, policy := range userResource.Spec.Policies {
 		policyFound := slices.Contains(userPolicies, policy)
 		if !policyFound {
-			logger.Info(fmt.Sprintf("S3User policy definition must contains policy %s", policy))
+			logger.Info(fmt.Sprintf("S3User policy definition must contain policy %s", policy))
 			policyToAdd = append(policyToAdd, policy)
 		}
 	}
 
 	if len(policyToDelete) > 0 {
-		r.S3Client.RemovePoliciesFromUser(userResource.Spec.AccessKey, policyToDelete)
+		err = r.S3Client.RemovePoliciesFromUser(userResource.Spec.AccessKey, policyToDelete)
+		if err != nil {
+			logger.Error(err, "an error occurred while removing policy to user", "user", userResource.Name)
+			return r.setS3UserStatusConditionAndUpdate(ctx, userResource, "OperatorFailed", metav1.ConditionFalse, "S3UserPolicyAppendFailed",
+				fmt.Sprintf("Error while updating policies of user %s on S3 backend has failed", userResource.Name), err)
+		}
 	}
 
 	if len(policyToAdd) > 0 {
-		r.S3Client.AddPoliciesToUser(userResource.Spec.AccessKey, policyToAdd)
+		err := r.S3Client.AddPoliciesToUser(userResource.Spec.AccessKey, policyToAdd)
+		if err != nil {
+			logger.Error(err, "an error occurred while adding policy to user", "user", userResource.Name)
+			return r.setS3UserStatusConditionAndUpdate(ctx, userResource, "OperatorFailed", metav1.ConditionFalse, "S3UserPolicyAppendFailed",
+				fmt.Sprintf("Error while updating policies of user %s on S3 backend has failed", userResource.Name), err)
+		}
 	}
 
-	logger.Info("User was reconcile without error")
+	logger.Info("User was reconciled without error")
+
+	// Re-fetch the S3User to ensure we have the latest state after updating the secret
+	// This is necessary at least when creating a user with secretName targetting a pre-existing secret
+	// that has proper form (data.accessKey and data.secretKey) but isn't owned by any other s3user
+	if err := r.Get(ctx, types.NamespacedName{Name: userResource.Name, Namespace: userResource.Namespace}, userResource); err != nil {
+		logger.Error(err, "Failed to re-fetch S3User")
+		return ctrl.Result{}, err
+	}
 
 	return r.setS3UserStatusConditionAndUpdate(ctx, userResource, "OperatorSucceeded", metav1.ConditionTrue, "S3UserUpdated",
-		fmt.Sprintf("The user [%s] was updated according to its matching custom resource", userResource.Name), nil)
+		fmt.Sprintf("The user %s was updated according to its matching custom resource", userResource.Name), nil)
 }
 
-func handleS3UserDeletion(ctx context.Context, userResource *s3v1alpha1.S3User, r *S3UserReconciler, logger logr.Logger, err error) (reconcile.Result, error) {
-	if controllerutil.ContainsFinalizer(userResource, userFinalizer) {
-		// Run finalization logic for S3UserFinalizer. If the finalization logic fails, don't remove the finalizer so that we can retry during the next reconciliation.
-		if err := r.finalizeS3User(userResource); err != nil {
-			logger.Error(err, "an error occurred when attempting to finalize the user", "user", userResource.Name)
-			return r.setS3UserStatusConditionAndUpdate(ctx, userResource, "OperatorFailed", metav1.ConditionFalse, "S3UserFinalizeFailed",
-				fmt.Sprintf("An error occurred when attempting to delete user [%s]", userResource.Name), err)
-		}
-
-		//Remove userFinalizer. Once all finalizers have been removed, the object will be deleted.
-		controllerutil.RemoveFinalizer(userResource, userFinalizer)
-		err = r.Update(ctx, userResource)
-		if err != nil {
-			logger.Error(err, "Failed to remove finalizer.")
-			return r.setS3UserStatusConditionAndUpdate(ctx, userResource, "OperatorFailed", metav1.ConditionFalse, "S3UserFinalizerRemovalFailed",
-				fmt.Sprintf("An error occurred when attempting to remove the finalizer from user [%s]", userResource.Name), err)
-		}
-	}
-	return ctrl.Result{}, nil
-}
-
-func handleS3UserCreation(ctx context.Context, userResource *s3v1alpha1.S3User, r *S3UserReconciler) (reconcile.Result, error) {
+func (r *S3UserReconciler) handleS3NewUser(ctx context.Context, userResource *s3v1alpha1.S3User) (reconcile.Result, error) {
 	logger := log.FromContext(ctx)
 
-	if !controllerutil.ContainsFinalizer(userResource, userFinalizer) {
-		controllerutil.AddFinalizer(userResource, userFinalizer)
-		err := r.Update(ctx, userResource)
-		if err != nil {
-			logger.Error(err, "Failed to add finalizer.")
-			return r.setS3UserStatusConditionAndUpdate(ctx, userResource, "OperatorFailed", metav1.ConditionFalse, "S3UserResourceAddFinalizerFailed",
-				fmt.Sprintf("Failed to add finalizer on userResource [%s] has failed", userResource.Name), err)
-		}
-	}
-
+	// Generating a random secret key
 	secretKey, err := password.Generate(20, true, false, true)
 	if err != nil {
 		logger.Error(err, fmt.Sprintf("Fail to generate password for user %s", userResource.Name))
 		return r.setS3UserStatusConditionAndUpdate(ctx, userResource, "OperatorFailed", metav1.ConditionFalse, "S3UserGeneratePasswordFailed",
-			fmt.Sprintf("An error occurred when attempting to generate password for user [%s]", userResource.Name), err)
+			fmt.Sprintf("An error occurred when attempting to generate password for user %s", userResource.Name), err)
 	}
 
-	err = r.S3Client.CreateUser(userResource.Spec.AccessKey, secretKey)
-
-	if err != nil {
-		logger.Error(err, "an error occurred while creating user on S3 server", "user", userResource.Name)
-		return r.setS3UserStatusConditionAndUpdate(ctx, userResource, "OperatorFailed", metav1.ConditionFalse, "S3UserCreationFailed",
-			fmt.Sprintf("Creation of user %s on S3 instance has failed", userResource.Name), err)
-	}
-
-	policies := userResource.Spec.Policies
-	if policies != nil {
-		err := r.S3Client.AddPoliciesToUser(userResource.Spec.AccessKey, policies)
-		if err != nil {
-			logger.Error(err, "an error occurred while adding policy to user", "user", userResource.Name)
-			return r.setS3UserStatusConditionAndUpdate(ctx, userResource, "OperatorFailed", metav1.ConditionFalse, "S3UserCreationFailed",
-				fmt.Sprintf("Error while updating policies of user [%s] on S3 instance has failed", userResource.Name), err)
-		}
-
-	}
-
-	// Define a new K8S Secrets
+	// Create a new K8S Secret to hold the user's accessKey and secretKey
 	secret, err := r.newSecretForCR(ctx, userResource, map[string][]byte{"accessKey": []byte(userResource.Spec.AccessKey), "secretKey": []byte(secretKey)})
 	if err != nil {
 		// Error while creating the Kubernetes secret - requeue the request.
 		logger.Error(err, "Could not generate Kubernetes secret")
 		return r.setS3UserStatusConditionAndUpdate(ctx, userResource, "OperatorFailed", metav1.ConditionFalse, "SecretGenerationFailed",
-			fmt.Sprintf("Generation of k8s secrets [%s] has failed", userResource.Name), err)
+			fmt.Sprintf("The generation of the k8s Secret %s has failed", userResource.Name), err)
 	}
 
-	// Check if this Secret already exists
-	err = r.Get(ctx, types.NamespacedName{Name: secret.Name, Namespace: secret.Namespace}, &corev1.Secret{})
+	// For managing user creation, we first check if a Secret matching
+	// the user's spec (not matching the owner reference) exists
+	existingK8sSecret := &corev1.Secret{}
+	err = r.Get(ctx, types.NamespacedName{Name: secret.Name, Namespace: secret.Namespace}, existingK8sSecret)
+
+	// If none exist : we create the user, then the secret
 	if err != nil && errors.IsNotFound(err) {
-		logger.Info("Creating a new Secret", "Secret.Namespace", secret.Namespace, "Secret.Name", secret.Name)
+		logger.Info("No secret found ; creating a new Secret", "Secret.Namespace", secret.Namespace, "Secret.Name", secret.Name)
+
+		// Creating the user
+		err = r.S3Client.CreateUser(userResource.Spec.AccessKey, secretKey)
+
+		if err != nil {
+			logger.Error(err, "an error occurred while creating user on S3 server", "user", userResource.Name)
+			return r.setS3UserStatusConditionAndUpdate(ctx, userResource, "OperatorFailed", metav1.ConditionFalse, "S3UserCreationFailed",
+				fmt.Sprintf("Creation of user %s on S3 instance has failed", userResource.Name), err)
+		}
+
+		// Creating the secret
+		logger.Info("Creating a new secret to store the user's credentials", "secretName", secret.Name)
 		err = r.Create(ctx, secret)
 		if err != nil {
 			logger.Error(err, "Could not create secret")
-			return r.setS3UserStatusConditionAndUpdate(ctx, userResource, "OperatorFailed", metav1.ConditionFalse, "SecretCreationFailed",
-				fmt.Sprintf("Creation of k8s secrets [%s] has failed", secret.Name), err)
+			return r.setS3UserStatusConditionAndUpdate(ctx, userResource, "OperatorFailed", metav1.ConditionFalse, "S3UserSecretCreationFailed",
+				fmt.Sprintf("The creation of the k8s Secret %s has failed", secret.Name), err)
 		}
-		return r.setS3UserStatusConditionAndUpdate(ctx, userResource, "OperatorSucceeded", metav1.ConditionTrue, "S3UserCreationSuccess",
-			fmt.Sprintf("The secret [%s] was created according to its matching custom resource", secret.Name), nil)
+
+		// Add policies
+		err = r.addPoliciesToUser(ctx, userResource)
+		if err != nil {
+			return r.setS3UserStatusConditionAndUpdate(ctx, userResource, "OperatorFailed", metav1.ConditionFalse, "S3UserPolicyAppendFailed",
+				fmt.Sprintf("Error while updating policies of user %s on S3 instance has failed", userResource.Name), err)
+		}
+
+		return r.setS3UserStatusConditionAndUpdate(ctx, userResource, "OperatorSucceeded", metav1.ConditionTrue, "S3UserCreatedWithNewSecret",
+			fmt.Sprintf("The S3User %s and the Secret %s were created successfully", userResource.Name, secret.Name), nil)
+
 	} else if err != nil {
-		logger.Error(err, "Could not create secret")
-		return r.setS3UserStatusConditionAndUpdate(ctx, userResource, "OperatorFailed", metav1.ConditionFalse, "SecretCreationFailed",
-			fmt.Sprintf("Creation of k8s secrets [%s] has failed", secret.Name), err)
+		logger.Error(err, "Couldn't check secret existence")
+		return r.setS3UserStatusConditionAndUpdate(ctx, userResource, "OperatorFailed", metav1.ConditionFalse, "SecretExistenceCheckFailedDuringS3UserCreation",
+			fmt.Sprintf("The check for an existing secret %s during the creation of the S3User %s has failed", secret.Name, userResource.Name), err)
+
 	} else {
+		// If a secret already exists, but has a different S3User owner reference, then the creation should
+		// fail with no requeue, and use the status to inform that the spec should be changed
+		for _, ref := range existingK8sSecret.OwnerReferences {
+			if ref.Kind == "S3User" {
+				if ref.UID != userResource.UID {
+					logger.Error(fmt.Errorf(""), "The secret matching the new S3User's spec is owned by a different S3User.", "conflictingUser", ref.Name)
+					return r.setS3UserStatusConditionAndUpdate(ctx, userResource, "OperatorFailed", metav1.ConditionFalse, "S3UserCreationFailedAsSecretIsOwnedByAnotherS3User",
+						fmt.Sprintf("The secret matching the new S3User's spec is owned by a different, pre-existing S3User (%s). The S3User being created now (%s) won't be created on the S3 backend until its spec changes to target a different secret", ref.Name, userResource.Name), nil)
+				}
+			}
+		}
+
 		if r.OverrideExistingSecret {
-			logger.Info(fmt.Sprintf("A secret with the name %s already exist. You choose to update existing secret.", userResource.Name))
+			// Case 3.2 : they are not valid, but the operator is configured to overwrite it
+			logger.Info(fmt.Sprintf("A secret with the name %s already exists ; it will be overwritten as per operator configuration", secret.Name))
+
+			// Creating the user
+			err = r.S3Client.CreateUser(userResource.Spec.AccessKey, secretKey)
+
+			if err != nil {
+				logger.Error(err, "an error occurred while creating user on S3 server", "user", userResource.Name)
+				return r.setS3UserStatusConditionAndUpdate(ctx, userResource, "OperatorFailed", metav1.ConditionFalse, "S3UserCreationFailed",
+					fmt.Sprintf("Creation of user %s on S3 instance has failed", userResource.Name), err)
+			}
+
+			// Updating the secret
+			logger.Info("Updating the pre-existing secret with new credentials", "secretName", secret.Name)
 			err = r.Update(ctx, secret)
 			if err != nil {
 				logger.Error(err, "Could not update secret")
 				return r.setS3UserStatusConditionAndUpdate(ctx, userResource, "OperatorFailed", metav1.ConditionFalse, "SecretUpdateFailed",
-					fmt.Sprintf("Update of k8s secrets [%s] has failed", secret.Name), err)
+					fmt.Sprintf("The update of the k8s Secret %s has failed", secret.Name), err)
 			}
 
-			return r.setS3UserStatusConditionAndUpdate(ctx, userResource, "OperatorSucceeded", metav1.ConditionTrue, "S3UserCreationSuccess",
-				fmt.Sprintf("The secret [%s] was created according to its matching custom resource", secret.Name), nil)
-		} else {
-			return r.setS3UserStatusConditionAndUpdate(ctx, userResource, "OperatorFailed", metav1.ConditionFalse, "SecretCreationFailed",
-				fmt.Sprintf("A secret with the name %s already exist NOOP", secret.Name), nil)
+			// Add policies
+			err = r.addPoliciesToUser(ctx, userResource)
+			if err != nil {
+				return r.setS3UserStatusConditionAndUpdate(ctx, userResource, "OperatorFailed", metav1.ConditionFalse, "S3UserPolicyAppendFailed",
+					fmt.Sprintf("Error while updating policies of user %s on S3 instance has failed", userResource.Name), err)
+			}
+
+			return r.setS3UserStatusConditionAndUpdate(ctx, userResource, "OperatorSucceeded", metav1.ConditionTrue, "S3UserCreatedWithWithOverridenSecret",
+				fmt.Sprintf("The S3User %s was created and the Secret %s was updated successfully", userResource.Name, secret.Name), nil)
 		}
+
+		// Case 3.3 : they are not valid, and the operator is configured keep the existing secret
+		// The user will not be created, with no requeue and with two possible ways out : either toggle
+		// OverrideExistingSecret on, or delete the S3User whose credentials are not working anyway.
+		logger.Error(nil, fmt.Sprintf("A secret with the name %s already exists ; as the operator is configured to NOT override any pre-existing secrets, this user (%s) not be created on S3 backend until spec change (to target new secret), or until the operator configuration is changed to override existing secrets", secret.Name, userResource.Name))
+		return r.setS3UserStatusConditionAndUpdate(ctx, userResource, "OperatorSucceeded", metav1.ConditionTrue, "S3UserCreationFailedAsSecretCannotBeOverwritten",
+			fmt.Sprintf("The S3User %s wasn't created, as its spec targets a secret (%s) containing invalid credentials. The user's spec should be changed to target a different secret.", userResource.Name, secret.Name), nil)
+
+	}
+}
+
+func (r *S3UserReconciler) addPoliciesToUser(ctx context.Context, userResource *s3v1alpha1.S3User) error {
+	logger := log.FromContext(ctx)
+	policies := userResource.Spec.Policies
+	if policies != nil {
+		err := r.S3Client.AddPoliciesToUser(userResource.Spec.AccessKey, policies)
+		if err != nil {
+			logger.Error(err, "an error occurred while adding policy to user", "user", userResource.Name)
+			return err
+		}
+	}
+	return nil
+}
+
+func (r *S3UserReconciler) handleS3UserDeletion(ctx context.Context, userResource *s3v1alpha1.S3User) (reconcile.Result, error) {
+	logger := log.FromContext(ctx)
+
+	if controllerutil.ContainsFinalizer(userResource, userFinalizer) {
+		// Run finalization logic for S3UserFinalizer. If the finalization logic fails, don't remove the finalizer so that we can retry during the next reconciliation.
+		if err := r.finalizeS3User(userResource); err != nil {
+			logger.Error(err, "an error occurred when attempting to finalize the user", "user", userResource.Name)
+			return r.setS3UserStatusConditionAndUpdate(ctx, userResource, "OperatorFailed", metav1.ConditionFalse, "S3UserFinalizeFailed",
+				fmt.Sprintf("An error occurred when attempting to delete user %s", userResource.Name), err)
+		}
+
+		//Remove userFinalizer. Once all finalizers have been removed, the object will be deleted.
+		controllerutil.RemoveFinalizer(userResource, userFinalizer)
+		// Unsure why the behavior is different to that of bucket/policy/path controllers, but it appears
+		// calling r.Update() for adding/removal of finalizer is not necessary (an update event is generated
+		// with the call to AddFinalizer/RemoveFinalizer), and worse, causes "freshness" problem (with the
+		// "the object has been modified; please apply your changes to the latest version and try again" error)
+		err := r.Update(ctx, userResource)
+		if err != nil {
+			logger.Error(err, "Failed to remove finalizer.")
+			return r.setS3UserStatusConditionAndUpdate(ctx, userResource, "OperatorFailed", metav1.ConditionFalse, "S3UserFinalizerRemovalFailed",
+				fmt.Sprintf("An error occurred when attempting to remove the finalizer from user %s", userResource.Name), err)
+		}
+	}
+	return ctrl.Result{}, nil
+}
+
+func (r *S3UserReconciler) getUserSecret(ctx context.Context, userResource *s3v1alpha1.S3User) (corev1.Secret, error) {
+	logger := log.FromContext(ctx)
+
+	// Listing every secrets in the S3User's namespace, as a first step
+	// to get the actual secret matching the S3User proper.
+	// TODO : proper label matching ?
+	secretsList := &corev1.SecretList{}
+	userSecret := corev1.Secret{}
+
+	err := r.List(ctx, secretsList, client.InNamespace(userResource.Namespace))
+	if err != nil {
+		logger.Error(err, "An error occurred while listing the secrets in user's namespace")
+		return userSecret, fmt.Errorf("SecretListingFailed")
+	}
+
+	if len(secretsList.Items) == 0 {
+		logger.Info("The user's namespace doesn't appear to contain any secret")
+		return userSecret, nil
+	}
+	// In all the secrets inside the S3User's namespace, one should have an owner reference
+	// pointing to the S3User. For that specific secret, we check if its name matches the one from
+	// the S3User, whether explicit (userResource.Spec.SecretName) or implicit (userResource.Name)
+	// In case of mismatch, that secret is deleted (and will be recreated) ; if there is a match,
+	// it will be used for state comparison.
+	uid := userResource.GetUID()
+
+	// cmp.Or takes the first non "zero" value, see https://pkg.go.dev/cmp#Or
+	effectiveS3UserSecretName := cmp.Or(userResource.Spec.SecretName, userResource.Name)
+	for _, secret := range secretsList.Items {
+		for _, ref := range secret.OwnerReferences {
+			if ref.UID == uid {
+				if secret.Name != effectiveS3UserSecretName {
+					return secret, fmt.Errorf("S3UserSecretNameMismatch")
+				} else {
+					userSecret = secret
+					break
+				}
+			}
+		}
+	}
+
+	return userSecret, nil
+}
+
+func (r *S3UserReconciler) deleteSecret(ctx context.Context, secret *corev1.Secret) {
+	logger := log.FromContext(ctx)
+	err := r.Delete(ctx, secret)
+	if err != nil {
+		logger.Error(err, "an error occurred while deleting a secret")
 	}
 }
 
 // SetupWithManager sets up the controller with the Manager.*
 func (r *S3UserReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	// filterLogger := ctrl.Log.WithName("filterEvt")
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&s3v1alpha1.S3User{}).
+		// The "secret owning" implies the reconcile loop will be called whenever a Secret owned
+		// by a S3User is created/updated/deleted. In other words, even when creating a single S3User,
+		// there is going to be several iterations.
 		Owns(&corev1.Secret{}).
-		// TODO : implement a real strategy for event filtering ; for now just using the example from OpSDK doc
-		// (https://sdk.operatorframework.io/docs/building-operators/golang/references/event-filtering/)
+		// See : https://sdk.operatorframework.io/docs/building-operators/golang/references/event-filtering/
 		WithEventFilter(predicate.Funcs{
+
+			// Ignore updates to CR status in which case metadata.Generation does not change,
+			// unless it is a change to the underlying Secret
 			UpdateFunc: func(e event.UpdateEvent) bool {
-				// Ignore updates to CR status in which case metadata.Generation does not change
-				return e.ObjectOld.GetGeneration() != e.ObjectNew.GetGeneration()
+
+				// To check if the update event is tied to a change on secret,
+				// we try to cast e.ObjectNew to a secret (only if it's not a S3User, which
+				// should prevent any TypeAssertionError based panic).
+				secretUpdate := false
+				newUser, _ := e.ObjectNew.(*s3v1alpha1.S3User)
+				if newUser == nil {
+					secretUpdate = (e.ObjectNew.(*corev1.Secret) != nil)
+				}
+
+				return e.ObjectOld.GetGeneration() != e.ObjectNew.GetGeneration() || secretUpdate
+			},
+			// Ignore create events caused by the underlying secret's creation
+			CreateFunc: func(e event.CreateEvent) bool {
+				user, _ := e.Object.(*s3v1alpha1.S3User)
+				return user != nil
 			},
 			DeleteFunc: func(e event.DeleteEvent) bool {
 				// Evaluates to false if the object has been confirmed deleted.
@@ -393,11 +519,12 @@ func (r *S3UserReconciler) finalizeS3User(userResource *s3v1alpha1.S3User) error
 	return nil
 }
 
-// newSecretForCR returns a secret with the same name/namespace as the CR. The secret will include all labels and
-// annotations from the CR.
+// newSecretForCR returns a secret with the same name/namespace as the CR.
+// The secret will include all labels and annotations from the CR.
 func (r *S3UserReconciler) newSecretForCR(ctx context.Context, userResource *s3v1alpha1.S3User, data map[string][]byte) (*corev1.Secret, error) {
 	logger := log.FromContext(ctx)
 
+	// Reusing the S3User's labels and annotations
 	labels := map[string]string{}
 	for k, v := range userResource.ObjectMeta.Labels {
 		labels[k] = v
@@ -408,10 +535,7 @@ func (r *S3UserReconciler) newSecretForCR(ctx context.Context, userResource *s3v
 		annotations[k] = v
 	}
 
-	secretName := userResource.Name
-	if userResource.Spec.SecretName != "" {
-		secretName = userResource.Spec.SecretName
-	}
+	secretName := cmp.Or(userResource.Spec.SecretName, userResource.Name)
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        secretName,
@@ -422,6 +546,7 @@ func (r *S3UserReconciler) newSecretForCR(ctx context.Context, userResource *s3v
 		Data: data,
 		Type: "Opaque",
 	}
+
 	// Set S3User instance as the owner and controller
 	err := ctrl.SetControllerReference(userResource, secret, r.Scheme)
 	if err != nil {

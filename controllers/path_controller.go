@@ -184,7 +184,7 @@ func (r *PathReconciler) SetupWithManager(mgr ctrl.Manager) error {
 }
 
 func (r *PathReconciler) finalizePath(pathResource *s3v1alpha1.Path) error {
-	logger := log.Log.WithName("finalize")
+	logger := log.Log.WithValues("controller", "path")
 	if r.PathDeletion {
 		var failedPaths []string = make([]string, 0)
 		for _, path := range pathResource.Spec.Paths {

@@ -9,7 +9,7 @@ import (
 )
 
 var (
-	s3Logger = ctrl.Log.WithName("s3Client")
+	s3Logger = ctrl.Log.WithValues("logger", "s3client")
 )
 
 type S3Client interface {
@@ -30,11 +30,11 @@ type S3Client interface {
 	UserExist(name string) (bool, error)
 	CheckUserCredentialsValid(name string, accessKey string, secretKey string) (bool, error)
 	AddServiceAccountForUser(name string, accessKey string, secretKey string) error
-	CreateUser(name string, password string) error
-	DeleteUser(name string) error
+	CreateUser(accessKey string, secretKey string) error
+	DeleteUser(accessKey string) error
 	GetUserPolicies(name string) ([]string, error)
-	AddPoliciesToUser(username string, policies []string) error
-	RemovePoliciesFromUser(username string, policies []string) error
+	AddPoliciesToUser(accessKey string, policies []string) error
+	RemovePoliciesFromUser(accessKey string, policies []string) error
 }
 
 type S3Config struct {

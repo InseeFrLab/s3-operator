@@ -406,8 +406,6 @@ func (r *S3UserReconciler) getUserSecret(ctx context.Context, userResource *s3v1
 	userSecret := corev1.Secret{}
 
 	err := r.List(ctx, secretsList, client.InNamespace(userResource.Namespace))
-	// TODO : check if the errors.IsNotFound makes sense for r.List
-	// if err != nil && (errors.IsNotFound(err) || len(secretsList.Items) == 0) {
 	if err != nil {
 		logger.Error(err, "An error occurred while listing the secrets in user's namespace")
 		return userSecret, fmt.Errorf("SecretListingFailed")
@@ -526,6 +524,7 @@ func (r *S3UserReconciler) finalizeS3User(userResource *s3v1alpha1.S3User) error
 func (r *S3UserReconciler) newSecretForCR(ctx context.Context, userResource *s3v1alpha1.S3User, data map[string][]byte) (*corev1.Secret, error) {
 	logger := log.FromContext(ctx)
 
+	// Reusing the S3User's labels and annotations
 	labels := map[string]string{}
 	for k, v := range userResource.ObjectMeta.Labels {
 		labels[k] = v

@@ -6,7 +6,6 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
-	"fmt"
 	"net/http"
 	"os"
 	"strings"
@@ -355,7 +354,7 @@ func (minioS3Client *MinioS3Client) CheckUserCredentialsValid(name string, acces
 }
 
 func (minioS3Client *MinioS3Client) RemovePoliciesFromUser(accessKey string, policies []string) error {
-	s3Logger.Info(fmt.Sprintf("Remove policy [%s] from user [%s]", policies, accessKey))
+	s3Logger.Info("Removing policies from user", "user", accessKey, "policies", policies)
 
 	opts := madmin.PolicyAssociationReq{
 		Policies: policies,

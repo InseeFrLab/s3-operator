@@ -41,9 +41,10 @@ import (
 // PathReconciler reconciles a Path object
 type PathReconciler struct {
 	client.Client
-	Scheme       *runtime.Scheme
-	S3Client     factory.S3Client
-	PathDeletion bool
+	Scheme               *runtime.Scheme
+	S3Client             factory.S3Client
+	PathDeletion         bool
+	S3LabelSelectorValue string
 }
 
 //+kubebuilder:rbac:groups=s3.onyxia.sh,resources=paths,verbs=get;list;watch;create;update;patch;delete
@@ -70,6 +71,19 @@ func (r *PathReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 		}
 		logger.Error(err, "An error occurred when attempting to read the Path resource from the Kubernetes cluster")
 		return ctrl.Result{}, err
+	}
+
+	// check if this object must be manage by this instance
+	if r.S3LabelSelectorValue != "" {
+		labelSelectorValue, found := pathResource.Labels[utils.S3OperatorPathLabelSelectorKey]
+		if !found {
+			logger.Info("This paht ressouce will not be manage by this instance because this instance require that path get labelSelector and label selector not found", "req.Name", req.Name, "Bucket Labels", pathResource.Labels, "S3OperatorBucketLabelSelectorKey", utils.S3OperatorBucketLabelSelectorKey)
+			return ctrl.Result{}, nil
+		}
+		if labelSelectorValue != r.S3LabelSelectorValue {
+			logger.Info("This path ressouce will not be manage by this instance because this instance require that path get specific a specific labelSelector value", "req.Name", req.Name, "expected", r.S3LabelSelectorValue, "current", labelSelectorValue)
+			return ctrl.Result{}, nil
+		}
 	}
 
 	// Managing path deletion with a finalizer

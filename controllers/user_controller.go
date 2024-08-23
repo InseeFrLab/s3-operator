@@ -51,6 +51,7 @@ type S3UserReconciler struct {
 	S3Client               factory.S3Client
 	S3UserDeletion         bool
 	OverrideExistingSecret bool
+	S3LabelSelectorValue   string
 }
 
 const (
@@ -79,6 +80,19 @@ func (r *S3UserReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		}
 		logger.Error(err, "An error occurred when fetching the S3User from Kubernetes")
 		return ctrl.Result{}, err
+	}
+
+	// check if this object must be manage by this instance
+	if r.S3LabelSelectorValue != "" {
+		labelSelectorValue, found := userResource.Labels[utils.S3OperatorUserLabelSelectorKey]
+		if !found {
+			logger.Info("This user ressouce will not be manage by this instance because this instance require that Bucket get labelSelector and label selector not found", "req.Name", req.Name, "Bucket Labels", userResource.Labels, "S3OperatorBucketLabelSelectorKey", utils.S3OperatorBucketLabelSelectorKey)
+			return ctrl.Result{}, nil
+		}
+		if labelSelectorValue != r.S3LabelSelectorValue {
+			logger.Info("This user ressouce will not be manage by this instance because this instance require that Bucket get specific a specific labelSelector value", "req.Name", req.Name, "expected", r.S3LabelSelectorValue, "current", labelSelectorValue)
+			return ctrl.Result{}, nil
+		}
 	}
 
 	// Check if the userResource instance is marked to be deleted, which is

@@ -82,6 +82,7 @@ func main() {
 	var policyDeletion bool
 	var pathDeletion bool
 	var s3userDeletion bool
+	var s3LabelSelector string
 
 	//K8S related variable
 	var overrideExistingSecret bool
@@ -97,6 +98,7 @@ func main() {
 	flag.StringVar(&s3EndpointUrl, "s3-endpoint-url", "localhost:9000", "Hostname (or hostname:port) of the S3 server")
 	flag.StringVar(&accessKey, "s3-access-key", "ROOTNAME", "The accessKey of the acount")
 	flag.StringVar(&secretKey, "s3-secret-key", "CHANGEME123", "The secretKey of the acount")
+	flag.StringVar(&s3LabelSelector, "s3-label-selector", "", "label selector to filter object managed by this operator if empty all objects are managed")
 	flag.Var(&caCertificatesBase64, "s3-ca-certificate-base64", "(Optional) Base64 encoded, PEM format certificate file for a certificate authority, for https requests to S3")
 	flag.StringVar(&caCertificatesBundlePath, "s3-ca-certificate-bundle-path", "", "(Optional) Path to a CA certificate file, for https requests to S3")
 	flag.StringVar(&region, "region", "us-east-1", "The region to configure for the S3 client")
@@ -173,28 +175,31 @@ func main() {
 	}
 
 	if err = (&controllers.BucketReconciler{
-		Client:         mgr.GetClient(),
-		Scheme:         mgr.GetScheme(),
-		S3Client:       s3Client,
-		BucketDeletion: bucketDeletion,
+		Client:               mgr.GetClient(),
+		Scheme:               mgr.GetScheme(),
+		S3Client:             s3Client,
+		BucketDeletion:       bucketDeletion,
+		S3LabelSelectorValue: s3LabelSelector,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Bucket")
 		os.Exit(1)
 	}
 	if err = (&controllers.PathReconciler{
-		Client:       mgr.GetClient(),
-		Scheme:       mgr.GetScheme(),
-		S3Client:     s3Client,
-		PathDeletion: pathDeletion,
+		Client:               mgr.GetClient(),
+		Scheme:               mgr.GetScheme(),
+		S3Client:             s3Client,
+		PathDeletion:         pathDeletion,
+		S3LabelSelectorValue: s3LabelSelector,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Path")
 		os.Exit(1)
 	}
 	if err = (&controllers.PolicyReconciler{
-		Client:         mgr.GetClient(),
-		Scheme:         mgr.GetScheme(),
-		S3Client:       s3Client,
-		PolicyDeletion: policyDeletion,
+		Client:               mgr.GetClient(),
+		Scheme:               mgr.GetScheme(),
+		S3Client:             s3Client,
+		PolicyDeletion:       policyDeletion,
+		S3LabelSelectorValue: s3LabelSelector,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Policy")
 		os.Exit(1)
@@ -205,6 +210,7 @@ func main() {
 		S3Client:               s3Client,
 		S3UserDeletion:         s3userDeletion,
 		OverrideExistingSecret: overrideExistingSecret,
+		S3LabelSelectorValue:   s3LabelSelector,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "S3User")
 		os.Exit(1)

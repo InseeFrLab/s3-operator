@@ -21,6 +21,9 @@ import (
 	"fmt"
 	"time"
 
+	s3v1alpha1 "github.com/InseeFrLab/s3-operator/api/v1alpha1"
+	"github.com/InseeFrLab/s3-operator/controllers/s3/factory"
+	utils "github.com/InseeFrLab/s3-operator/controllers/utils"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -32,18 +35,15 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
-
-	s3v1alpha1 "github.com/InseeFrLab/s3-operator/api/v1alpha1"
-	"github.com/InseeFrLab/s3-operator/controllers/s3/factory"
-	"github.com/InseeFrLab/s3-operator/controllers/utils"
 )
 
 // BucketReconciler reconciles a Bucket object
 type BucketReconciler struct {
 	client.Client
-	Scheme         *runtime.Scheme
-	S3Client       factory.S3Client
-	BucketDeletion bool
+	Scheme               *runtime.Scheme
+	S3Client             factory.S3Client
+	BucketDeletion       bool
+	S3LabelSelectorValue string
 }
 
 //+kubebuilder:rbac:groups=s3.onyxia.sh,resources=buckets,verbs=get;list;watch;create;update;patch;delete
@@ -70,6 +70,19 @@ func (r *BucketReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		}
 		logger.Error(err, "An error occurred when attempting to read the Bucket resource from the Kubernetes cluster")
 		return ctrl.Result{}, err
+	}
+
+	// check if this object must be manage by this instance
+	if r.S3LabelSelectorValue != "" {
+		labelSelectorValue, found := bucketResource.Labels[utils.S3OperatorBucketLabelSelectorKey]
+		if !found {
+			logger.Info("This bucket ressouce will not be manage by this instance because this instance require that Bucket get labelSelector and label selector not found", "req.Name", req.Name, "Bucket Labels", bucketResource.Labels, "S3OperatorBucketLabelSelectorKey", utils.S3OperatorBucketLabelSelectorKey)
+			return ctrl.Result{}, nil
+		}
+		if labelSelectorValue != r.S3LabelSelectorValue {
+			logger.Info("This bucket ressouce will not be manage by this instance because this instance require that Bucket get specific a specific labelSelector value", "req.Name", req.Name, "expected", r.S3LabelSelectorValue, "current", labelSelectorValue)
+			return ctrl.Result{}, nil
+		}
 	}
 
 	// Managing bucket deletion with a finalizer

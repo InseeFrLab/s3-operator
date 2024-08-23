@@ -44,9 +44,10 @@ import (
 // PolicyReconciler reconciles a Policy object
 type PolicyReconciler struct {
 	client.Client
-	Scheme         *runtime.Scheme
-	S3Client       factory.S3Client
-	PolicyDeletion bool
+	Scheme               *runtime.Scheme
+	S3Client             factory.S3Client
+	PolicyDeletion       bool
+	S3LabelSelectorValue string
 }
 
 //+kubebuilder:rbac:groups=s3.onyxia.sh,resources=policies,verbs=get;list;watch;create;update;patch;delete
@@ -73,6 +74,19 @@ func (r *PolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		}
 		logger.Error(err, "An error occurred when attempting to read the Policy resource from the Kubernetes cluster")
 		return ctrl.Result{}, err
+	}
+
+	// check if this object must be manage by this instance
+	if r.S3LabelSelectorValue != "" {
+		labelSelectorValue, found := policyResource.Labels[utils.S3OperatorPolicyLabelSelectorKey]
+		if !found {
+			logger.Info("This policy ressouce will not be manage by this instance because this instance require that policy get labelSelector and label selector not found", "req.Name", req.Name, "Policy Labels", policyResource.Labels, "S3OperatorPolicyLabelSelectorKey", utils.S3OperatorPolicyLabelSelectorKey)
+			return ctrl.Result{}, nil
+		}
+		if labelSelectorValue != r.S3LabelSelectorValue {
+			logger.Info("This policy ressouce will not be manage by this instance because this instance require that policy get specific a specific labelSelector value", "req.Name", req.Name, "expected", r.S3LabelSelectorValue, "current", labelSelectorValue)
+			return ctrl.Result{}, nil
+		}
 	}
 
 	// Managing policy deletion with a finalizer

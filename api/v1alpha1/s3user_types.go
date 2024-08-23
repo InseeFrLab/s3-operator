@@ -37,6 +37,10 @@ type S3UserSpec struct {
 	// SecretName associated to the S3User
 	// +kubebuilder:validation:Optional
 	SecretName string `json:"secretName"`
+
+	// s3InstanceRef where create the user
+	// +kubebuilder:validation:Optional
+	S3InstanceRef string `json:"s3InstanceRef,omitempty"`
 }
 
 // S3UserStatus defines the observed state of S3User

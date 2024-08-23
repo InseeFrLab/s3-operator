@@ -394,3 +394,7 @@ func (minioS3Client *MinioS3Client) AddPoliciesToUser(accessKey string, policies
 	}
 	return nil
 }
+
+func (minioS3Client *MinioS3Client) GetConfig() *S3Config {
+	return &minioS3Client.s3Config
+}

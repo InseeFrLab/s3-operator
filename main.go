@@ -27,7 +27,9 @@ import (
 
 	s3v1alpha1 "github.com/InseeFrLab/s3-operator/api/v1alpha1"
 	controllers "github.com/InseeFrLab/s3-operator/controllers"
-	"github.com/InseeFrLab/s3-operator/controllers/s3/factory"
+	s3ClientCache "github.com/InseeFrLab/s3-operator/internal/s3"
+	"github.com/InseeFrLab/s3-operator/internal/s3/factory"
+
 	"go.uber.org/zap/zapcore"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -152,67 +154,71 @@ func main() {
 		os.Exit(1)
 	}
 
-	// For S3 access key and secret key, we first try to read the values from environment variables.
-	// Only if these are not defined do we use the respective flags.
-	var accessKeyFromEnvIfAvailable = os.Getenv("S3_ACCESS_KEY")
-	if accessKeyFromEnvIfAvailable == "" {
-		accessKeyFromEnvIfAvailable = accessKey
-	}
-	var secretKeyFromEnvIfAvailable = os.Getenv("S3_SECRET_KEY")
-	if secretKeyFromEnvIfAvailable == "" {
-		secretKeyFromEnvIfAvailable = secretKey
-	}
+	s3ClientCache := s3ClientCache.New()
 
-	// Creation of the S3 client
-	s3Config := &factory.S3Config{S3Provider: s3Provider, S3UrlEndpoint: s3EndpointUrl, Region: region, AccessKey: accessKeyFromEnvIfAvailable, SecretKey: secretKeyFromEnvIfAvailable, UseSsl: useSsl, CaCertificatesBase64: caCertificatesBase64, CaBundlePath: caCertificatesBundlePath}
-	s3Client, err := factory.GetS3Client(s3Config.S3Provider, s3Config)
+	// Creation of the default S3 client
+	s3DefaultClient, err := factory.GenerateDefaultS3Client(s3Provider, s3EndpointUrl, accessKey, secretKey, region, useSsl, caCertificatesBase64, caCertificatesBundlePath)
+
 	if err != nil {
 		// setupLog.Log.Error(err, err.Error())
 		// fmt.Print(s3Client)
 		// fmt.Print(err)
-		setupLog.Error(err, "an error occurred while creating the S3 client", "s3Client", s3Client)
+		setupLog.Error(err, "an error occurred while creating the S3 client", "s3Client", s3DefaultClient)
 		os.Exit(1)
+	}
+
+	if s3DefaultClient != nil {
+		s3ClientCache.Set("default", s3DefaultClient)
 	}
 
 	if err = (&controllers.BucketReconciler{
 		Client:               mgr.GetClient(),
 		Scheme:               mgr.GetScheme(),
-		S3Client:             s3Client,
+		S3ClientCache:        s3ClientCache,
 		BucketDeletion:       bucketDeletion,
 		S3LabelSelectorValue: s3LabelSelector,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Bucket")
 		os.Exit(1)
 	}
-	if err = (&controllers.PathReconciler{
+	// if err = (&controllers.PathReconciler{
+	// 	Client:               mgr.GetClient(),
+	// 	Scheme:               mgr.GetScheme(),
+	// 	S3ClientCache:        s3ClientCache,
+	// 	PathDeletion:         pathDeletion,
+	// 	S3LabelSelectorValue: s3LabelSelector,
+	// }).SetupWithManager(mgr); err != nil {
+	// 	setupLog.Error(err, "unable to create controller", "controller", "Path")
+	// 	os.Exit(1)
+	// }
+	// if err = (&controllers.PolicyReconciler{
+	// 	Client:               mgr.GetClient(),
+	// 	Scheme:               mgr.GetScheme(),
+	// 	S3ClientCache:        s3ClientCache,
+	// 	PolicyDeletion:       policyDeletion,
+	// 	S3LabelSelectorValue: s3LabelSelector,
+	// }).SetupWithManager(mgr); err != nil {
+	// 	setupLog.Error(err, "unable to create controller", "controller", "Policy")
+	// 	os.Exit(1)
+	// }
+	// if err = (&controllers.S3UserReconciler{
+	// 	Client:                 mgr.GetClient(),
+	// 	Scheme:                 mgr.GetScheme(),
+	// 	S3ClientCache:          s3ClientCache,
+	// 	S3UserDeletion:         s3userDeletion,
+	// 	OverrideExistingSecret: overrideExistingSecret,
+	// 	S3LabelSelectorValue:   s3LabelSelector,
+	// }).SetupWithManager(mgr); err != nil {
+	// 	setupLog.Error(err, "unable to create controller", "controller", "S3User")
+	// 	os.Exit(1)
+	// }
+	if err = (&controllers.S3InstanceReconciler{
 		Client:               mgr.GetClient(),
 		Scheme:               mgr.GetScheme(),
-		S3Client:             s3Client,
-		PathDeletion:         pathDeletion,
+		S3ClientCache:        s3ClientCache,
 		S3LabelSelectorValue: s3LabelSelector,
 	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "Path")
-		os.Exit(1)
-	}
-	if err = (&controllers.PolicyReconciler{
-		Client:               mgr.GetClient(),
-		Scheme:               mgr.GetScheme(),
-		S3Client:             s3Client,
-		PolicyDeletion:       policyDeletion,
-		S3LabelSelectorValue: s3LabelSelector,
-	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "Policy")
-		os.Exit(1)
-	}
-	if err = (&controllers.S3UserReconciler{
-		Client:                 mgr.GetClient(),
-		Scheme:                 mgr.GetScheme(),
-		S3Client:               s3Client,
-		S3UserDeletion:         s3userDeletion,
-		OverrideExistingSecret: overrideExistingSecret,
-		S3LabelSelectorValue:   s3LabelSelector,
-	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "S3User")
+		setupLog.Error(err, "unable to create controller", "controller", "S3Instance")
 		os.Exit(1)
 	}
 	//+kubebuilder:scaffold:builder

@@ -36,6 +36,10 @@ type BucketSpec struct {
 	// +kubebuilder:validation:Optional
 	Paths []string `json:"paths,omitempty"`
 
+	// s3InstanceRef where create the bucket
+	// +kubebuilder:validation:Optional
+	S3InstanceRef string `json:"s3InstanceRef,omitempty"`
+
 	// Quota to apply to the bucket
 	// +kubebuilder:validation:Required
 	Quota Quota `json:"quota"`
@@ -43,7 +47,7 @@ type BucketSpec struct {
 
 // BucketStatus defines the observed state of Bucket
 type BucketStatus struct {
-	// Status management using Conditions. 
+	// Status management using Conditions.
 	// See also : https://github.com/kubernetes/community/blob/master/contributors/devel/sig-architecture/api-conventions.md#typical-status-properties
 	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type"`
 }

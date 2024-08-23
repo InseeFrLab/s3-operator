@@ -43,6 +43,9 @@ spec:
                 items:
                   type: string
                 type: array
+              s3InstanceRef:
+                description: s3InstanceRef where create the Paths
+                type: string
             required:
             - bucketName
             type: object

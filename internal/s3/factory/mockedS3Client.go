@@ -4,7 +4,9 @@ import (
 	"github.com/minio/madmin-go/v3"
 )
 
-type MockedS3Client struct{}
+type MockedS3Client struct {
+	s3Config S3Config
+}
 
 func (mockedS3Provider *MockedS3Client) BucketExists(name string) (bool, error) {
 	s3Logger.Info("checking bucket existence", "bucket", name)
@@ -76,12 +78,10 @@ func (mockedS3Provider *MockedS3Client) PolicyExist(name string) (bool, error) {
 	return true, nil
 }
 
-
 func (mockedS3Provider *MockedS3Client) AddPoliciesToUser(username string, policies []string) error {
 	s3Logger.Info("Adding policies to user", "user", username, "policies", policies)
 	return nil
 }
-
 
 func (mockedS3Provider *MockedS3Client) DeletePolicy(name string) error {
 	s3Logger.Info("delete policy", "policy", name)
@@ -108,6 +108,10 @@ func (mockedS3Provider *MockedS3Client) RemovePoliciesFromUser(username string, 
 	return nil
 }
 
+func (mockedS3Provider *MockedS3Client) GetConfig() *S3Config {
+	return &mockedS3Provider.s3Config
+}
+
 func newMockedS3Client() *MockedS3Client {
-	return &MockedS3Client{}
+	return &MockedS3Client{s3Config: S3Config{}}
 }

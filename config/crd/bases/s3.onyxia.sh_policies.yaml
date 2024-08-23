@@ -41,6 +41,9 @@ spec:
               policyContent:
                 description: Content of the policy (IAM JSON format)
                 type: string
+              s3InstanceRef:
+                description: s3InstanceRef where create the Policy
+                type: string
             required:
             - name
             - policyContent

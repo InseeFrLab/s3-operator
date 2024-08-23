@@ -39,16 +39,17 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	s3v1alpha1 "github.com/InseeFrLab/s3-operator/api/v1alpha1"
-	"github.com/InseeFrLab/s3-operator/controllers/s3/factory"
-	utils "github.com/InseeFrLab/s3-operator/controllers/utils"
-	password "github.com/InseeFrLab/s3-operator/controllers/utils/password"
+	s3ClientCache "github.com/InseeFrLab/s3-operator/internal/s3"
+	"github.com/InseeFrLab/s3-operator/internal/s3/factory"
+	utils "github.com/InseeFrLab/s3-operator/internal/utils"
+	password "github.com/InseeFrLab/s3-operator/internal/utils/password"
 )
 
 // S3UserReconciler reconciles a S3User object
 type S3UserReconciler struct {
 	client.Client
 	Scheme                 *runtime.Scheme
-	S3Client               factory.S3Client
+	S3ClientCache          *s3ClientCache.S3ClientCache
 	S3UserDeletion         bool
 	OverrideExistingSecret bool
 	S3LabelSelectorValue   string
@@ -116,7 +117,16 @@ func (r *S3UserReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	}
 
 	// Check user existence on the S3 server
-	found, err := r.S3Client.UserExist(userResource.Spec.AccessKey)
+
+	// Create S3Client
+	s3Client, err := r.getS3InstanceForObject(ctx, userResource)
+	if err != nil {
+		logger.Error(err, "an error occurred while getting s3Client")
+		return r.setS3UserStatusConditionAndUpdate(ctx, userResource, "OperatorFailed", metav1.ConditionFalse, "FailedS3Client",
+			"Getting s3Client in cache has failed", err)
+	}
+
+	found, err := s3Client.UserExist(userResource.Spec.AccessKey)
 	if err != nil {
 		logger.Error(err, "an error occurred while checking the existence of a user", "user", userResource.Name)
 		return r.setS3UserStatusConditionAndUpdate(ctx, userResource, "OperatorFailed", metav1.ConditionFalse, "S3UserExistenceCheckFailed",
@@ -135,7 +145,13 @@ func (r *S3UserReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 
 func (r *S3UserReconciler) handleS3ExistingUser(ctx context.Context, userResource *s3v1alpha1.S3User) (reconcile.Result, error) {
 	logger := log.FromContext(ctx)
-
+	// Create S3Client
+	s3Client, err := r.getS3InstanceForObject(ctx, userResource)
+	if err != nil {
+		logger.Error(err, "an error occurred while getting s3Client")
+		return r.setS3UserStatusConditionAndUpdate(ctx, userResource, "OperatorFailed", metav1.ConditionFalse, "FailedS3Client",
+			"Getting s3Client in cache has failed", err)
+	}
 	// --- Begin Secret management section
 
 	userOwnedSecret, err := r.getUserSecret(ctx, userResource)
@@ -144,7 +160,7 @@ func (r *S3UserReconciler) handleS3ExistingUser(ctx context.Context, userResourc
 			logger.Error(err, "An error occurred when trying to obtain the user's secret. The user will be deleted from S3 backend and recreated with a secret.")
 
 			r.deleteSecret(ctx, &userOwnedSecret)
-			err = r.S3Client.DeleteUser(userResource.Spec.AccessKey)
+			err = s3Client.DeleteUser(userResource.Spec.AccessKey)
 			if err != nil {
 				logger.Error(err, "Could not delete user on S3 server", "user", userResource.Name)
 				return r.setS3UserStatusConditionAndUpdate(ctx, userResource, "OperatorFailed", metav1.ConditionFalse, "S3UserDeletionFailed",
@@ -159,7 +175,7 @@ func (r *S3UserReconciler) handleS3ExistingUser(ctx context.Context, userResourc
 
 	if userOwnedSecret.Name == "" {
 		logger.Info("Secret associated to user not found, user will be deleted from the S3 backend, then recreated with a secret")
-		err = r.S3Client.DeleteUser(userResource.Spec.AccessKey)
+		err = s3Client.DeleteUser(userResource.Spec.AccessKey)
 		if err != nil {
 			logger.Error(err, "Could not delete user on S3 server", "user", userResource.Name)
 			return r.setS3UserStatusConditionAndUpdate(ctx, userResource, "OperatorFailed", metav1.ConditionFalse, "S3UserDeletionFailed",
@@ -171,7 +187,7 @@ func (r *S3UserReconciler) handleS3ExistingUser(ctx context.Context, userResourc
 	// If a matching secret is found, then we check if it is still valid, as in : do the credentials it
 	// contains still allow authenticating the S3User on the backend ? If not, the user is deleted and recreated.
 	// credentialsValid, err := r.S3Client.CheckUserCredentialsValid(userResource.Name, userResource.Spec.AccessKey, string(userOwnedSecret.Data["secretKey"]))
-	credentialsValid, err := r.S3Client.CheckUserCredentialsValid(userResource.Name, string(userOwnedSecret.Data["accessKey"]), string(userOwnedSecret.Data["secretKey"]))
+	credentialsValid, err := s3Client.CheckUserCredentialsValid(userResource.Name, string(userOwnedSecret.Data["accessKey"]), string(userOwnedSecret.Data["secretKey"]))
 	if err != nil {
 		logger.Error(err, "An error occurred when checking if user credentials were valid", "user", userResource.Name)
 		return r.setS3UserStatusConditionAndUpdate(ctx, userResource, "OperatorFailed", metav1.ConditionFalse, "S3UserCredentialsCheckFailed",
@@ -181,7 +197,7 @@ func (r *S3UserReconciler) handleS3ExistingUser(ctx context.Context, userResourc
 	if !credentialsValid {
 		logger.Info("The secret containing the credentials will be deleted, and the user will be deleted from the S3 backend, then recreated (through another reconcile)")
 		r.deleteSecret(ctx, &userOwnedSecret)
-		err = r.S3Client.DeleteUser(userResource.Spec.AccessKey)
+		err = s3Client.DeleteUser(userResource.Spec.AccessKey)
 		if err != nil {
 			logger.Error(err, "Could not delete user on S3 server", "user", userResource.Name)
 			return r.setS3UserStatusConditionAndUpdate(ctx, userResource, "OperatorFailed", metav1.ConditionFalse, "S3UserDeletionFailed",
@@ -195,7 +211,7 @@ func (r *S3UserReconciler) handleS3ExistingUser(ctx context.Context, userResourc
 	// --- End Secret management section
 
 	logger.Info("Checking user policies")
-	userPolicies, err := r.S3Client.GetUserPolicies(userResource.Spec.AccessKey)
+	userPolicies, err := s3Client.GetUserPolicies(userResource.Spec.AccessKey)
 	if err != nil {
 		logger.Error(err, "Could not check the user's policies")
 		return r.setS3UserStatusConditionAndUpdate(ctx, userResource, "OperatorFailed", metav1.ConditionFalse, "S3UserPolicyCheckFailed",
@@ -221,7 +237,7 @@ func (r *S3UserReconciler) handleS3ExistingUser(ctx context.Context, userResourc
 	}
 
 	if len(policyToDelete) > 0 {
-		err = r.S3Client.RemovePoliciesFromUser(userResource.Spec.AccessKey, policyToDelete)
+		err = s3Client.RemovePoliciesFromUser(userResource.Spec.AccessKey, policyToDelete)
 		if err != nil {
 			logger.Error(err, "an error occurred while removing policy to user", "user", userResource.Name)
 			return r.setS3UserStatusConditionAndUpdate(ctx, userResource, "OperatorFailed", metav1.ConditionFalse, "S3UserPolicyAppendFailed",
@@ -230,7 +246,7 @@ func (r *S3UserReconciler) handleS3ExistingUser(ctx context.Context, userResourc
 	}
 
 	if len(policyToAdd) > 0 {
-		err := r.S3Client.AddPoliciesToUser(userResource.Spec.AccessKey, policyToAdd)
+		err := s3Client.AddPoliciesToUser(userResource.Spec.AccessKey, policyToAdd)
 		if err != nil {
 			logger.Error(err, "an error occurred while adding policy to user", "user", userResource.Name)
 			return r.setS3UserStatusConditionAndUpdate(ctx, userResource, "OperatorFailed", metav1.ConditionFalse, "S3UserPolicyAppendFailed",
@@ -254,7 +270,13 @@ func (r *S3UserReconciler) handleS3ExistingUser(ctx context.Context, userResourc
 
 func (r *S3UserReconciler) handleS3NewUser(ctx context.Context, userResource *s3v1alpha1.S3User) (reconcile.Result, error) {
 	logger := log.FromContext(ctx)
-
+	// Create S3Client
+	s3Client, err := r.getS3InstanceForObject(ctx, userResource)
+	if err != nil {
+		logger.Error(err, "an error occurred while getting s3Client")
+		return r.setS3UserStatusConditionAndUpdate(ctx, userResource, "OperatorFailed", metav1.ConditionFalse, "FailedS3Client",
+			"Getting s3Client in cache has failed", err)
+	}
 	// Generating a random secret key
 	secretKey, err := password.Generate(20, true, false, true)
 	if err != nil {
@@ -282,7 +304,7 @@ func (r *S3UserReconciler) handleS3NewUser(ctx context.Context, userResource *s3
 		logger.Info("No secret found ; creating a new Secret", "Secret.Namespace", secret.Namespace, "Secret.Name", secret.Name)
 
 		// Creating the user
-		err = r.S3Client.CreateUser(userResource.Spec.AccessKey, secretKey)
+		err = s3Client.CreateUser(userResource.Spec.AccessKey, secretKey)
 
 		if err != nil {
 			logger.Error(err, "an error occurred while creating user on S3 server", "user", userResource.Name)
@@ -332,7 +354,7 @@ func (r *S3UserReconciler) handleS3NewUser(ctx context.Context, userResource *s3
 			logger.Info(fmt.Sprintf("A secret with the name %s already exists ; it will be overwritten as per operator configuration", secret.Name))
 
 			// Creating the user
-			err = r.S3Client.CreateUser(userResource.Spec.AccessKey, secretKey)
+			err = s3Client.CreateUser(userResource.Spec.AccessKey, secretKey)
 
 			if err != nil {
 				logger.Error(err, "an error occurred while creating user on S3 server", "user", userResource.Name)
@@ -372,9 +394,15 @@ func (r *S3UserReconciler) handleS3NewUser(ctx context.Context, userResource *s3
 
 func (r *S3UserReconciler) addPoliciesToUser(ctx context.Context, userResource *s3v1alpha1.S3User) error {
 	logger := log.FromContext(ctx)
+	// Create S3Client
+	s3Client, err := r.getS3InstanceForObject(ctx, userResource)
+	if err != nil {
+		logger.Error(err, "an error occurred while getting s3Client")
+		return err
+	}
 	policies := userResource.Spec.Policies
 	if policies != nil {
-		err := r.S3Client.AddPoliciesToUser(userResource.Spec.AccessKey, policies)
+		err := s3Client.AddPoliciesToUser(userResource.Spec.AccessKey, policies)
 		if err != nil {
 			logger.Error(err, "an error occurred while adding policy to user", "user", userResource.Name)
 			return err
@@ -388,7 +416,7 @@ func (r *S3UserReconciler) handleS3UserDeletion(ctx context.Context, userResourc
 
 	if controllerutil.ContainsFinalizer(userResource, userFinalizer) {
 		// Run finalization logic for S3UserFinalizer. If the finalization logic fails, don't remove the finalizer so that we can retry during the next reconciliation.
-		if err := r.finalizeS3User(userResource); err != nil {
+		if err := r.finalizeS3User(ctx, userResource); err != nil {
 			logger.Error(err, "an error occurred when attempting to finalize the user", "user", userResource.Name)
 			return r.setS3UserStatusConditionAndUpdate(ctx, userResource, "OperatorFailed", metav1.ConditionFalse, "S3UserFinalizeFailed",
 				fmt.Sprintf("An error occurred when attempting to delete user %s", userResource.Name), err)
@@ -526,9 +554,16 @@ func (r *S3UserReconciler) setS3UserStatusConditionAndUpdate(ctx context.Context
 	return ctrl.Result{}, srcError
 }
 
-func (r *S3UserReconciler) finalizeS3User(userResource *s3v1alpha1.S3User) error {
+func (r *S3UserReconciler) finalizeS3User(ctx context.Context, userResource *s3v1alpha1.S3User) error {
+	logger := log.FromContext(ctx)
+	// Create S3Client
+	s3Client, err := r.getS3InstanceForObject(ctx, userResource)
+	if err != nil {
+		logger.Error(err, "an error occurred while getting s3Client")
+		return err
+	}
 	if r.S3UserDeletion {
-		return r.S3Client.DeleteUser(userResource.Spec.AccessKey)
+		return s3Client.DeleteUser(userResource.Spec.AccessKey)
 	}
 	return nil
 }
@@ -570,4 +605,27 @@ func (r *S3UserReconciler) newSecretForCR(ctx context.Context, userResource *s3v
 
 	return secret, nil
 
+}
+
+func (r *S3UserReconciler) getS3InstanceForObject(ctx context.Context, userResource *s3v1alpha1.S3User) (factory.S3Client, error) {
+	logger := log.FromContext(ctx)
+	if userResource.Spec.S3InstanceRef == "" {
+		logger.Info("Bucket resource doesn't refer to s3Instance, failback to default one")
+		s3Client, found := r.S3ClientCache.Get("default")
+		if !found {
+			err := &s3ClientCache.S3ClientCacheError{Reason: "No default client was found"}
+			logger.Error(err, "No default client was found")
+			return nil, err
+		}
+		return s3Client, nil
+	} else {
+		logger.Info(fmt.Sprintf("Bucket resource doesn't refer to s3Instance: %s, search instance in cache", userResource.Spec.S3InstanceRef))
+		s3Client, found := r.S3ClientCache.Get(userResource.Spec.S3InstanceRef)
+		if !found {
+			err := &s3ClientCache.S3ClientCacheError{Reason: fmt.Sprintf("S3InstanceRef: %s,not found in cache", userResource.Spec.S3InstanceRef)}
+			logger.Error(err, "No client was found")
+			return nil, err
+		}
+		return s3Client, nil
+	}
 }

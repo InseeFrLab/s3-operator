@@ -5,20 +5,20 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.11.1
   creationTimestamp: null
-  name: buckets.s3.onyxia.sh
+  name: s3instances.s3.onyxia.sh
 spec:
   group: s3.onyxia.sh
   names:
-    kind: Bucket
-    listKind: BucketList
-    plural: buckets
-    singular: bucket
+    kind: S3Instance
+    listKind: S3InstanceList
+    plural: s3instances
+    singular: s3instance
   scope: Namespaced
   versions:
   - name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: Bucket is the Schema for the buckets API
+        description: S3Instance is the Schema for the S3Instances API
         properties:
           apiVersion:
             description: 'APIVersion defines the versioned schema of this representation
@@ -33,39 +33,37 @@ spec:
           metadata:
             type: object
           spec:
-            description: BucketSpec defines the desired state of Bucket
+            description: S3InstanceSpec defines the desired state of S3Instance
             properties:
-              name:
-                description: Name of the bucket
-                type: string
-              paths:
-                description: Paths (folders) to create inside the bucket
+              caCertificateBase64:
+                description: CaCertificatesBase64 associated to the S3InstanceUrl
                 items:
                   type: string
                 type: array
-              quota:
-                description: Quota to apply to the bucket
-                properties:
-                  default:
-                    description: Default quota to apply, mandatory
-                    format: int64
-                    type: integer
-                  override:
-                    description: Optional override quota, to be used by cluster admin.
-                    format: int64
-                    type: integer
-                required:
-                - default
-                type: object
-              s3InstanceRef:
-                description: s3InstanceRef where create the bucket
+              region:
+                description: region associated to the S3Instance
                 type: string
+              s3Provider:
+                description: type of the S3Instance
+                type: string
+              secretName:
+                description: SecretName associated to the S3Instance containing accessKey
+                  and secretKey
+                type: string
+              urlEndpoint:
+                description: url of the S3Instance
+                type: string
+              useSSL:
+                description: useSSL when connecting to the S3Instance
+                type: boolean
             required:
-            - name
-            - quota
+            - region
+            - s3Provider
+            - secretName
+            - urlEndpoint
             type: object
           status:
-            description: BucketStatus defines the observed state of Bucket
+            description: S3InstanceStatus defines the observed state of S3Instance
             properties:
               conditions:
                 description: 'Status management using Conditions. See also : https://github.com/kubernetes/community/blob/master/contributors/devel/sig-architecture/api-conventions.md#typical-status-properties'

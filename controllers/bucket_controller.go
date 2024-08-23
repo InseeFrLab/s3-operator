@@ -22,8 +22,10 @@ import (
 	"time"
 
 	s3v1alpha1 "github.com/InseeFrLab/s3-operator/api/v1alpha1"
-	"github.com/InseeFrLab/s3-operator/controllers/s3/factory"
-	utils "github.com/InseeFrLab/s3-operator/controllers/utils"
+	s3ClientCache "github.com/InseeFrLab/s3-operator/internal/s3"
+	"github.com/InseeFrLab/s3-operator/internal/s3/factory"
+
+	utils "github.com/InseeFrLab/s3-operator/internal/utils"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -41,7 +43,7 @@ import (
 type BucketReconciler struct {
 	client.Client
 	Scheme               *runtime.Scheme
-	S3Client             factory.S3Client
+	S3ClientCache        *s3ClientCache.S3ClientCache
 	BucketDeletion       bool
 	S3LabelSelectorValue string
 }
@@ -93,7 +95,7 @@ func (r *BucketReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 			// Run finalization logic for bucketFinalizer. If the
 			// finalization logic fails, don't remove the finalizer so
 			// that we can retry during the next reconciliation.
-			if err := r.finalizeBucket(bucketResource); err != nil {
+			if err := r.finalizeBucket(ctx, bucketResource); err != nil {
 				// return ctrl.Result{}, err
 				logger.Error(err, "an error occurred when attempting to finalize the bucket", "bucket", bucketResource.Spec.Name)
 				// return ctrl.Result{}, err
@@ -126,10 +128,17 @@ func (r *BucketReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		}
 	}
 
-	// Bucket lifecycle management (other than deletion) starts here
+	// Create S3Client
+	s3Client, err := r.getS3InstanceForObject(ctx, bucketResource)
+	if err != nil {
+		logger.Error(err, "an error occurred while getting s3Client")
+		return r.SetBucketStatusConditionAndUpdate(ctx, bucketResource, "OperatorFailed", metav1.ConditionFalse, "FailedS3Client",
+			"Getting s3Client in cache has failed", err)
+	}
 
+	// Bucket lifecycle management (other than deletion) starts here
 	// Check bucket existence on the S3 server
-	found, err := r.S3Client.BucketExists(bucketResource.Spec.Name)
+	found, err := s3Client.BucketExists(bucketResource.Spec.Name)
 	if err != nil {
 		logger.Error(err, "an error occurred while checking the existence of a bucket", "bucket", bucketResource.Spec.Name)
 		return r.SetBucketStatusConditionAndUpdate(ctx, bucketResource, "OperatorFailed", metav1.ConditionFalse, "BucketExistenceCheckFailed",
@@ -140,7 +149,7 @@ func (r *BucketReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	if !found {
 
 		// Bucket creation
-		err = r.S3Client.CreateBucket(bucketResource.Spec.Name)
+		err = s3Client.CreateBucket(bucketResource.Spec.Name)
 		if err != nil {
 			logger.Error(err, "an error occurred while creating a bucket", "bucket", bucketResource.Spec.Name)
 			return r.SetBucketStatusConditionAndUpdate(ctx, bucketResource, "OperatorFailed", metav1.ConditionFalse, "BucketCreationFailed",
@@ -148,7 +157,7 @@ func (r *BucketReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		}
 
 		// Setting quotas
-		err = r.S3Client.SetQuota(bucketResource.Spec.Name, bucketResource.Spec.Quota.Default)
+		err = s3Client.SetQuota(bucketResource.Spec.Name, bucketResource.Spec.Quota.Default)
 		if err != nil {
 			logger.Error(err, "an error occurred while setting a quota on a bucket", "bucket", bucketResource.Spec.Name, "quota", bucketResource.Spec.Quota.Default)
 			return r.SetBucketStatusConditionAndUpdate(ctx, bucketResource, "OperatorFailed", metav1.ConditionFalse, "SetQuotaOnBucketFailed",
@@ -157,7 +166,7 @@ func (r *BucketReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 
 		// Path creation
 		for _, v := range bucketResource.Spec.Paths {
-			err = r.S3Client.CreatePath(bucketResource.Spec.Name, v)
+			err = s3Client.CreatePath(bucketResource.Spec.Name, v)
 			if err != nil {
 				logger.Error(err, "an error occurred while creating a path on a bucket", "bucket", bucketResource.Spec.Name, "path", v)
 				return r.SetBucketStatusConditionAndUpdate(ctx, bucketResource, "OperatorFailed", metav1.ConditionFalse, "CreatingPathOnBucketFailed",
@@ -174,7 +183,7 @@ func (r *BucketReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	// its corresponding custom resource, and update it in case the CR has changed.
 
 	// Checking effectiveQuota existence on the bucket
-	effectiveQuota, err := r.S3Client.GetQuota(bucketResource.Spec.Name)
+	effectiveQuota, err := s3Client.GetQuota(bucketResource.Spec.Name)
 	if err != nil {
 		logger.Error(err, "an error occurred while getting the quota for a bucket", "bucket", bucketResource.Spec.Name)
 		return r.SetBucketStatusConditionAndUpdate(ctx, bucketResource, "OperatorFailed", metav1.ConditionFalse, "BucketQuotaCheckFailed",
@@ -191,7 +200,7 @@ func (r *BucketReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	}
 
 	if effectiveQuota != quotaToResetTo {
-		err = r.S3Client.SetQuota(bucketResource.Spec.Name, quotaToResetTo)
+		err = s3Client.SetQuota(bucketResource.Spec.Name, quotaToResetTo)
 		if err != nil {
 			logger.Error(err, "an error occurred while resetting the quota for a bucket", "bucket", bucketResource.Spec.Name, "quotaToResetTo", quotaToResetTo)
 			return r.SetBucketStatusConditionAndUpdate(ctx, bucketResource, "OperatorFailed", metav1.ConditionFalse, "BucketQuotaUpdateFailed",
@@ -207,7 +216,7 @@ func (r *BucketReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	// But then again, some buckets will likely be filled with many objects outside the
 	// scope of the CR, so getting all of them might be even more costly.
 	for _, pathInCr := range bucketResource.Spec.Paths {
-		pathExists, err := r.S3Client.PathExists(bucketResource.Spec.Name, pathInCr)
+		pathExists, err := s3Client.PathExists(bucketResource.Spec.Name, pathInCr)
 		if err != nil {
 			logger.Error(err, "an error occurred while checking a path's existence on a bucket", "bucket", bucketResource.Spec.Name, "path", pathInCr)
 			return r.SetBucketStatusConditionAndUpdate(ctx, bucketResource, "OperatorFailed", metav1.ConditionFalse, "BucketPathCheckFailed",
@@ -215,7 +224,7 @@ func (r *BucketReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		}
 
 		if !pathExists {
-			err = r.S3Client.CreatePath(bucketResource.Spec.Name, pathInCr)
+			err = s3Client.CreatePath(bucketResource.Spec.Name, pathInCr)
 			if err != nil {
 				logger.Error(err, "an error occurred while creating a path on a bucket", "bucket", bucketResource.Spec.Name, "path", pathInCr)
 				return r.SetBucketStatusConditionAndUpdate(ctx, bucketResource, "OperatorFailed", metav1.ConditionFalse, "BucketPathCreationFailed",
@@ -249,9 +258,16 @@ func (r *BucketReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
-func (r *BucketReconciler) finalizeBucket(bucketResource *s3v1alpha1.Bucket) error {
+func (r *BucketReconciler) finalizeBucket(ctx context.Context, bucketResource *s3v1alpha1.Bucket) error {
+	logger := log.FromContext(ctx)
+
+	s3Client, err := r.getS3InstanceForObject(ctx, bucketResource)
+	if err != nil {
+		logger.Error(err, "an error occurred while getting s3Client")
+		return err
+	}
 	if r.BucketDeletion {
-		return r.S3Client.DeleteBucket(bucketResource.Spec.Name)
+		return s3Client.DeleteBucket(bucketResource.Spec.Name)
 	}
 	return nil
 }
@@ -277,4 +293,28 @@ func (r *BucketReconciler) SetBucketStatusConditionAndUpdate(ctx context.Context
 		return ctrl.Result{}, utilerrors.NewAggregate([]error{err, srcError})
 	}
 	return ctrl.Result{}, srcError
+}
+
+func (r *BucketReconciler) getS3InstanceForObject(ctx context.Context, bucketResource *s3v1alpha1.Bucket) (factory.S3Client, error) {
+	logger := log.FromContext(ctx)
+	if bucketResource.Spec.S3InstanceRef == "" {
+		logger.Info("Bucket resource doesn't have S3InstanceRef fill, failback to default instance")
+		s3Client, found := r.S3ClientCache.Get("default")
+		if !found {
+			err := &s3ClientCache.S3ClientCacheError{Reason: "No default client was found"}
+			logger.Error(err, "No default client was found")
+			return nil, err
+		}
+		return s3Client, nil
+	} else {
+
+		logger.Info(fmt.Sprintf("Bucket resource refer to s3Instance: %s, search instance in cache", bucketResource.Spec.S3InstanceRef))
+		s3Client, found := r.S3ClientCache.Get(bucketResource.Spec.S3InstanceRef)
+		if !found {
+			err := &s3ClientCache.S3ClientCacheError{Reason: fmt.Sprintf("S3InstanceRef: %s, not found in cache", bucketResource.Spec.S3InstanceRef)}
+			logger.Error(err, "No client was found")
+			return nil, err
+		}
+		return s3Client, nil
+	}
 }

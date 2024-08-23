@@ -1,4 +1,4 @@
-package factory
+package s3factory
 
 import (
 	"bytes"
@@ -6,8 +6,9 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
+	"fmt"
 	"net/http"
-	"os"
+	neturl "net/url"
 	"strings"
 
 	"github.com/minio/madmin-go/v3"
@@ -21,87 +22,99 @@ type MinioS3Client struct {
 	adminClient madmin.AdminClient
 }
 
-func newMinioS3Client(S3Config *S3Config) *MinioS3Client {
+func newMinioS3Client(S3Config *S3Config) (*MinioS3Client, error) {
 	s3Logger.Info("creating minio clients (regular and admin)")
-
-	minioOptions := &minio.Options{
-		Creds:  credentials.NewStaticV4(S3Config.AccessKey, S3Config.SecretKey, ""),
-		Region: S3Config.Region,
-		Secure: S3Config.UseSsl,
-	}
-
-	// Preparing the tlsConfig to support custom CA if configured
-	// See also :
-	// - https://pkg.go.dev/github.com/minio/minio-go/v7@v7.0.52#Options
-	// - https://pkg.go.dev/net/http#RoundTripper
-	// - https://youngkin.github.io/post/gohttpsclientserver/#create-the-client
-	// - https://forfuncsake.github.io/post/2017/08/trust-extra-ca-cert-in-go-app/
-	// Appending content directly, from a base64-encoded, PEM format CA certificate
-	// Variant : if S3Config.CaBundlePath was a string[]
-	// for _, caCertificateFilePath := range S3Config.S3Config.CaBundlePaths {
-	// 	caCert, err := os.ReadFile(caCertificateFilePath)
-	// 	if err != nil {
-	// 		log.Fatalf("Error opening CA cert file %s, Error: %s", caCertificateFilePath, err)
-	// 	}
-	// 	rootCAs.AppendCertsFromPEM([]byte(caCert))
-	// }
-	addTransportOptions(S3Config, minioOptions)
-
-	minioClient, err := minio.New(S3Config.S3UrlEndpoint, minioOptions)
+	minioClient, err := generateMinioClient(S3Config.S3Url, S3Config.AccessKey, S3Config.SecretKey, S3Config.Region, S3Config.CaCertificatesBase64)
 	if err != nil {
 		s3Logger.Error(err, "an error occurred while creating a new minio client")
+		return nil, err
 	}
-
-	adminClient, err := madmin.New(S3Config.S3UrlEndpoint, S3Config.AccessKey, S3Config.SecretKey, S3Config.UseSsl)
+	adminClient, err := generateAdminMinioClient(S3Config.S3Url, S3Config.AccessKey, S3Config.SecretKey, S3Config.Region, S3Config.CaCertificatesBase64)
 	if err != nil {
 		s3Logger.Error(err, "an error occurred while creating a new minio admin client")
+		return nil, err
 	}
-	// Getting the custom root CA (if any) from the "regular" client's Transport
-	adminClient.SetCustomTransport(minioOptions.Transport)
-
-	return &MinioS3Client{*S3Config, *minioClient, *adminClient}
+	return &MinioS3Client{*S3Config, *minioClient, *adminClient}, nil
 }
 
-func addTransportOptions(S3Config *S3Config, minioOptions *minio.Options) {
-	if len(S3Config.CaCertificatesBase64) > 0 {
+func generateMinioClient(url string, accessKey string, secretKey string, region string, caCertificates []string) (*minio.Client, error) {
+	hostname, isSSL, err := extractHostAndScheme(url)
+	if err != nil {
+		s3Logger.Error(err, "an error occurred while creating a new minio client")
+		return nil, err
+	}
 
-		rootCAs, _ := x509.SystemCertPool()
-		if rootCAs == nil {
-			rootCAs = x509.NewCertPool()
-		}
+	minioOptions := &minio.Options{
+		Creds:  credentials.NewStaticV4(accessKey, secretKey, ""),
+		Region: region,
+		Secure: isSSL,
+	}
 
-		for _, caCertificateBase64 := range S3Config.CaCertificatesBase64 {
-			decodedCaCertificate, err := base64.StdEncoding.DecodeString(caCertificateBase64)
-			if err != nil {
-				s3Logger.Error(err, "an error occurred while parsing a base64-encoded CA certificate")
-			}
+	if len(caCertificates) > 0 {
+		addTlsClientConfigToMinioOptions(caCertificates, minioOptions)
+	}
 
-			rootCAs.AppendCertsFromPEM(decodedCaCertificate)
-		}
+	minioClient, err := minio.New(hostname, minioOptions)
+	if err != nil {
+		s3Logger.Error(err, "an error occurred while creating a new minio client")
+		return nil, err
+	}
+	return minioClient, nil
+}
 
-		minioOptions.Transport = &http.Transport{
-			TLSClientConfig: &tls.Config{
-				RootCAs: rootCAs,
-			},
-		}
-	} else if len(S3Config.CaBundlePath) > 0 {
+func generateAdminMinioClient(url string, accessKey string, secretKey string, region string, caCertificates []string) (*madmin.AdminClient, error) {
+	hostname, isSSL, err := extractHostAndScheme(url)
+	s3Logger.Info("", "hostname", hostname, "isSSL", isSSL)
+	if err != nil {
+		s3Logger.Error(err, "an error occurred while creating a new minio client")
+		return nil, err
+	}
 
-		rootCAs, _ := x509.SystemCertPool()
-		if rootCAs == nil {
-			rootCAs = x509.NewCertPool()
-		}
+	minioAdminClient, err := madmin.New(hostname, accessKey, secretKey, isSSL)
+	if err != nil {
+		s3Logger.Error(err, "an error occurred while creating a new minio client")
+		return nil, err
+	}
 
-		caCert, err := os.ReadFile(S3Config.CaBundlePath)
-		if err != nil {
-			s3Logger.Error(err, "an error occurred while reading a CA certificates bundle file")
-		}
-		rootCAs.AppendCertsFromPEM([]byte(caCert))
+	minioOptions := &minio.Options{
+		Region: region,
+		Secure: isSSL,
+	}
 
-		minioOptions.Transport = &http.Transport{
-			TLSClientConfig: &tls.Config{
-				RootCAs: rootCAs,
-			},
-		}
+	if len(caCertificates) > 0 {
+		addTlsClientConfigToMinioOptions(caCertificates, minioOptions)
+	}
+
+	minioAdminClient.SetCustomTransport(minioOptions.Transport)
+
+	return minioAdminClient, nil
+}
+
+func extractHostAndScheme(url string) (string, bool, error) {
+	parsedURL, err := neturl.Parse(url)
+	if err != nil {
+		return "", false, fmt.Errorf("cannot detect if url use ssl or not")
+	}
+	return parsedURL.Hostname(), parsedURL.Scheme == "https", nil
+}
+
+func addTlsClientConfigToMinioOptions(caCertificates []string, minioOptions *minio.Options) {
+	rootCAs, _ := x509.SystemCertPool()
+	if rootCAs == nil {
+		rootCAs = x509.NewCertPool()
+	}
+
+	for _, caCertificate := range caCertificates {
+		caCertificateAsByte := []byte(caCertificate)
+		caCertificateEncoded := base64.StdEncoding.EncodeToString(caCertificateAsByte)
+		rootCAs.AppendCertsFromPEM([]byte(caCertificateEncoded))
+
+	}
+
+	minioOptions.Transport = &http.Transport{
+		TLSClientConfig: &tls.Config{
+			RootCAs: rootCAs,
+		},
 	}
 }
 
@@ -116,6 +129,21 @@ func (minioS3Client *MinioS3Client) BucketExists(name string) (bool, error) {
 func (minioS3Client *MinioS3Client) CreateBucket(name string) error {
 	s3Logger.Info("creating bucket", "bucket", name)
 	return minioS3Client.client.MakeBucket(context.Background(), name, minio.MakeBucketOptions{Region: minioS3Client.s3Config.Region})
+}
+
+func (minioS3Client *MinioS3Client) ListBuckets() ([]string, error) {
+	s3Logger.Info("listing bucket")
+	listBucketsInfo, err := minioS3Client.client.ListBuckets(context.Background())
+	bucketsName := []string{}
+	if err != nil {
+		errAsResponse := minio.ToErrorResponse(err)
+		s3Logger.Error(err, "an error occurred while listing buckets", "code", errAsResponse.Code)
+		return bucketsName, err
+	}
+	for _, bucketInfo := range listBucketsInfo {
+		bucketsName = append(bucketsName, bucketInfo.Name)
+	}
+	return bucketsName, nil
 }
 
 // Will fail if bucket is not empty
@@ -325,17 +353,12 @@ func (minioS3Client *MinioS3Client) GetUserPolicies(accessKey string) ([]string,
 
 func (minioS3Client *MinioS3Client) CheckUserCredentialsValid(name string, accessKey string, secretKey string) (bool, error) {
 	s3Logger.Info("Check credentials for user", "user", name, "accessKey", accessKey)
-	minioTestClientOptions := &minio.Options{
-		Creds:  credentials.NewStaticV4(accessKey, secretKey, ""),
-		Region: minioS3Client.s3Config.Region,
-		Secure: minioS3Client.s3Config.UseSsl,
-	}
-	addTransportOptions(&minioS3Client.s3Config, minioTestClientOptions)
-	minioTestClient, err := minio.New(minioS3Client.s3Config.S3UrlEndpoint, minioTestClientOptions)
+
+	minioTestClient, err := generateMinioClient(minioS3Client.s3Config.S3Url, accessKey, secretKey, minioS3Client.s3Config.Region, minioS3Client.s3Config.CaCertificatesBase64)
 	if err != nil {
 		s3Logger.Error(err, "An error occurred while creating a new Minio test client")
+		return false, err
 	}
-
 	_, err = minioTestClient.ListBuckets(context.Background())
 	if err != nil {
 		errAsResponse := minio.ToErrorResponse(err)
@@ -393,4 +416,8 @@ func (minioS3Client *MinioS3Client) AddPoliciesToUser(accessKey string, policies
 		return err
 	}
 	return nil
+}
+
+func (minioS3Client *MinioS3Client) GetConfig() *S3Config {
+	return &minioS3Client.s3Config
 }

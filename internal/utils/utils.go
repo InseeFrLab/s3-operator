@@ -27,3 +27,5 @@ func UpdateConditions(existingConditions []metav1.Condition, newCondition metav1
 
 	return append([]metav1.Condition{newCondition}, existingConditions...)
 }
+
+

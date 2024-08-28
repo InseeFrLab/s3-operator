@@ -7,7 +7,7 @@ require (
 	github.com/minio/minio-go/v7 v7.0.64
 	github.com/onsi/ginkgo/v2 v2.11.0
 	github.com/onsi/gomega v1.27.10
-	go.uber.org/zap v1.25.0
+	go.uber.org/zap v1.27.0
 	k8s.io/api v0.28.3
 	k8s.io/apimachinery v0.28.3
 	k8s.io/client-go v0.28.3

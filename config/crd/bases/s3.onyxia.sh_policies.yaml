@@ -42,8 +42,12 @@ spec:
                 description: Content of the policy (IAM JSON format)
                 type: string
               s3InstanceRef:
+                default: s3-operator/default
                 description: s3InstanceRef where create the Policy
                 type: string
+                x-kubernetes-validations:
+                - message: s3InstanceRef is immutable
+                  rule: self == oldSelf
             required:
             - name
             - policyContent

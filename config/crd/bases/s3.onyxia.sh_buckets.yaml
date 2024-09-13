@@ -58,11 +58,16 @@ spec:
                 - default
                 type: object
               s3InstanceRef:
+                default: s3-operator/default
                 description: s3InstanceRef where create the bucket
                 type: string
+                x-kubernetes-validations:
+                - message: s3InstanceRef is immutable
+                  rule: self == oldSelf
             required:
             - name
             - quota
+            - s3InstanceRef
             type: object
           status:
             description: BucketStatus defines the observed state of Bucket

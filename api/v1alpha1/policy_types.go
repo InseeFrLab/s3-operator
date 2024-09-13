@@ -37,7 +37,8 @@ type PolicySpec struct {
 	PolicyContent string `json:"policyContent"`
 
 	// s3InstanceRef where create the Policy
-	// +kubebuilder:validation:Optional
+	// +kubebuilder:default=s3-operator/default
+    // +kubebuilder:validation:XValidation:rule="self == oldSelf",message="s3InstanceRef is immutable"
 	S3InstanceRef string `json:"s3InstanceRef,omitempty"`
 }
 

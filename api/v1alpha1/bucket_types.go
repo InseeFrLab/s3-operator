@@ -37,8 +37,12 @@ type BucketSpec struct {
 	Paths []string `json:"paths,omitempty"`
 
 	// s3InstanceRef where create the bucket
-	// +kubebuilder:validation:Optional
-	S3InstanceRef string `json:"s3InstanceRef,omitempty"`
+	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?(/[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?)?$`
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=127
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="s3InstanceRef is immutable"
+	// +kubebuilder:default=s3-operator/default
+	S3InstanceRef string `json:"s3InstanceRef"`
 
 	// Quota to apply to the bucket
 	// +kubebuilder:validation:Required

@@ -28,27 +28,46 @@ type S3InstanceSpec struct {
 
 	// type of the S3Instance
 	// +kubebuilder:validation:Required
-	S3Provider string `json:"s3Provider"`
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="S3Provider is immutable"
+	// +kubebuilder:default=minio
+	// +kubebuilder:validation:Enum=minio;mockedS3Provider
+	S3Provider string `json:"s3Provider,omitempty"`
 
 	// url of the S3Instance
 	// +kubebuilder:validation:Required
-	UrlEndpoint string `json:"urlEndpoint"`
+	Url string `json:"url"`
 
-	// SecretName associated to the S3Instance containing accessKey and secretKey
+	// Ref to Secret associated to the S3Instance containing accessKey and secretKey
 	// +kubebuilder:validation:Required
-	SecretName string `json:"secretName"`
+	SecretRef string `json:"secretRef"`
 
 	// region associated to the S3Instance
-	// +kubebuilder:validation:Required
-	Region string `json:"region"`
-
-	// useSSL when connecting to the S3Instance
 	// +kubebuilder:validation:Optional
-	UseSSL bool `json:"useSSL,omitempty"`
+	Region string `json:"region,omitempty"`
 
-	// CaCertificatesBase64 associated to the S3InstanceUrl
+	// Secret containing key ca.crt with the certificate associated to the S3InstanceUrl
 	// +kubebuilder:validation:Optional
-	CaCertificatesBase64 []string `json:"caCertificateBase64,omitempty"`
+	CaCertSecretRef string `json:"caCertSecretRef,omitempty"`
+
+	// AllowedNamespaces to use this S3InstanceUrl if empty only the namespace of this instance url is allowed to use it
+	// +kubebuilder:validation:Optional
+	AllowedNamespaces []string `json:"allowedNamespaces,omitempty"`
+
+	// BucketDeletionEnabled Trigger bucket deletion on the S3 backend upon CR deletion. Will fail if bucket is not empty.
+	// +kubebuilder:default=false
+	BucketDeletionEnabled bool `json:"bucketDeletionEnabled,omitempty"`
+
+	// PolicyDeletionEnabled Trigger policy deletion on the S3 backend upon CR deletion.
+	// +kubebuilder:default=false
+	PolicyDeletionEnabled bool `json:"policyDeletionEnabled,omitempty"`
+
+	// PathDeletionEnabled Trigger path deletion on the S3 backend upon CR deletion. Limited to deleting the `.keep` files used by the operator.
+	// +kubebuilder:default=false
+	PathDeletionEnabled bool `json:"pathDeletionEnabled,omitempty"`
+
+	// S3UserDeletionEnabled Trigger S3 deletion on the S3 backend upon CR deletion.
+	// +kubebuilder:default=false
+	S3UserDeletionEnabled bool `json:"s3UserDeletionEnabled,omitempty"`
 }
 
 // S3InstanceStatus defines the observed state of S3Instance

@@ -58,11 +58,19 @@ spec:
                 - default
                 type: object
               s3InstanceRef:
+                default: s3-operator/default
                 description: s3InstanceRef where create the bucket
+                maxLength: 127
+                minLength: 1
+                pattern: ^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?(/[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?)?$
                 type: string
+                x-kubernetes-validations:
+                - message: s3InstanceRef is immutable
+                  rule: self == oldSelf
             required:
             - name
             - quota
+            - s3InstanceRef
             type: object
           status:
             description: BucketStatus defines the observed state of Bucket

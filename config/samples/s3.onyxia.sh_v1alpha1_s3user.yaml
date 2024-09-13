@@ -1,12 +1,6 @@
 apiVersion: s3.onyxia.sh/v1alpha1
 kind: S3User
 metadata:
-  labels:
-    app.kubernetes.io/name: user
-    app.kubernetes.io/instance: user-sample
-    app.kubernetes.io/part-of: s3-operator
-    app.kubernetes.io/managed-by: kustomize
-    app.kubernetes.io/created-by: s3-operator
   name: user-sample
 spec:
   accessKey: user-sample

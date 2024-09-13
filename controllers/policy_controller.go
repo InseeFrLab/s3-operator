@@ -24,7 +24,7 @@ import (
 	"time"
 
 	"github.com/minio/madmin-go/v3"
-	"k8s.io/apimachinery/pkg/api/errors"
+	k8sapierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
@@ -35,20 +35,18 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	s3v1alpha1 "github.com/InseeFrLab/s3-operator/api/v1alpha1"
-	s3ClientCache "github.com/InseeFrLab/s3-operator/internal/s3"
-	"github.com/InseeFrLab/s3-operator/internal/s3/factory"
+	controllerhelpers "github.com/InseeFrLab/s3-operator/internal/controllerhelper"
 	"github.com/InseeFrLab/s3-operator/internal/utils"
 )
 
 // PolicyReconciler reconciles a Policy object
 type PolicyReconciler struct {
 	client.Client
-	Scheme               *runtime.Scheme
-	S3ClientCache        *s3ClientCache.S3ClientCache
-	PolicyDeletion       bool
-	S3LabelSelectorValue string
+	Scheme          *runtime.Scheme
+	ReconcilePeriod time.Duration
 }
 
 //+kubebuilder:rbac:groups=s3.onyxia.sh,resources=policies,verbs=get;list;watch;create;update;patch;delete
@@ -69,55 +67,12 @@ func (r *PolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	policyResource := &s3v1alpha1.Policy{}
 	err := r.Get(ctx, req.NamespacedName, policyResource)
 	if err != nil {
-		if errors.IsNotFound(err) {
+		if k8sapierrors.IsNotFound(err) {
 			logger.Info("The Policy custom resource has been removed ; as such the Policy controller is NOOP.", "req.Name", req.Name)
 			return ctrl.Result{}, nil
 		}
 		logger.Error(err, "An error occurred when attempting to read the Policy resource from the Kubernetes cluster")
 		return ctrl.Result{}, err
-	}
-
-	// check if this object must be manage by this instance
-	if r.S3LabelSelectorValue != "" {
-		labelSelectorValue, found := policyResource.Labels[utils.S3OperatorPolicyLabelSelectorKey]
-		if !found {
-			logger.Info("This policy ressouce will not be manage by this instance because this instance require that policy get labelSelector and label selector not found", "req.Name", req.Name, "Policy Labels", policyResource.Labels, "S3OperatorPolicyLabelSelectorKey", utils.S3OperatorPolicyLabelSelectorKey)
-			return ctrl.Result{}, nil
-		}
-		if labelSelectorValue != r.S3LabelSelectorValue {
-			logger.Info("This policy ressouce will not be manage by this instance because this instance require that policy get specific a specific labelSelector value", "req.Name", req.Name, "expected", r.S3LabelSelectorValue, "current", labelSelectorValue)
-			return ctrl.Result{}, nil
-		}
-	}
-
-	// Managing policy deletion with a finalizer
-	// REF : https://sdk.operatorframework.io/docs/building-operators/golang/advanced-topics/#external-resources
-	isMarkedForDeletion := policyResource.GetDeletionTimestamp() != nil
-	if isMarkedForDeletion {
-		if controllerutil.ContainsFinalizer(policyResource, policyFinalizer) {
-			// Run finalization logic for policyFinalizer. If the
-			// finalization logic fails, don't remove the finalizer so
-			// that we can retry during the next reconciliation.
-			if err := r.finalizePolicy(ctx, policyResource); err != nil {
-				// return ctrl.Result{}, err
-				logger.Error(err, "an error occurred when attempting to finalize the policy", "policy", policyResource.Spec.Name)
-				// return ctrl.Result{}, err
-				return r.SetPolicyStatusConditionAndUpdate(ctx, policyResource, "OperatorFailed", metav1.ConditionFalse, "PolicyFinalizeFailed",
-					fmt.Sprintf("An error occurred when attempting to delete policy [%s]", policyResource.Spec.Name), err)
-			}
-
-			// Remove policyFinalizer. Once all finalizers have been
-			// removed, the object will be deleted.
-			controllerutil.RemoveFinalizer(policyResource, policyFinalizer)
-			err := r.Update(ctx, policyResource)
-			if err != nil {
-				logger.Error(err, "an error occurred when removing finalizer from policy", "policy", policyResource.Spec.Name)
-				// return ctrl.Result{}, err
-				return r.SetPolicyStatusConditionAndUpdate(ctx, policyResource, "OperatorFailed", metav1.ConditionFalse, "PolicyFinalizerRemovalFailed",
-					fmt.Sprintf("An error occurred when attempting to remove the finalizer from policy [%s]", policyResource.Spec.Name), err)
-			}
-		}
-		return ctrl.Result{}, nil
 	}
 
 	// Add finalizer for this CR
@@ -130,16 +85,39 @@ func (r *PolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 			return r.SetPolicyStatusConditionAndUpdate(ctx, policyResource, "OperatorFailed", metav1.ConditionFalse, "PolicyFinalizerAddFailed",
 				fmt.Sprintf("An error occurred when attempting to add the finalizer from policy [%s]", policyResource.Spec.Name), err)
 		}
+
+		// Let's re-fetch the S3Instance Custom Resource after adding the finalizer
+		// so that we have the latest state of the resource on the cluster and we will avoid
+		// raise the issue "the object has been modified, please apply
+		// your changes to the latest version and try again" which would re-trigger the reconciliation
+		// if we try to update it again in the following operations
+		if err := r.Get(ctx, req.NamespacedName, policyResource); err != nil {
+			logger.Error(err, "Failed to re-fetch policyResource", "NamespacedName", req.NamespacedName.String())
+			return ctrl.Result{}, err
+		}
+	}
+
+	// Managing policy deletion with a finalizer
+	// REF : https://sdk.operatorframework.io/docs/building-operators/golang/advanced-topics/#external-resources
+	if policyResource.GetDeletionTimestamp() != nil {
+
+		return r.handlePolicyDeletion(ctx, req, policyResource)
 	}
 
 	// Policy lifecycle management (other than deletion) starts here
+	return r.handlePolicyReconciliation(ctx, policyResource)
+
+}
+
+func (r *PolicyReconciler) handlePolicyReconciliation(ctx context.Context, policyResource *s3v1alpha1.Policy) (reconcile.Result, error) {
+	logger := log.FromContext(ctx)
 
 	// Create S3Client
-	s3Client, err := r.getS3InstanceForObject(ctx, policyResource)
+	s3Client, err := controllerhelpers.GetS3ClientForRessource(ctx, r.Client, policyResource.Name, policyResource.Namespace, policyResource.Spec.S3InstanceRef)
 	if err != nil {
 		logger.Error(err, "an error occurred while getting s3Client")
 		return r.SetPolicyStatusConditionAndUpdate(ctx, policyResource, "OperatorFailed", metav1.ConditionFalse, "FailedS3Client",
-			"Getting s3Client in cache has failed", err)
+			"Unknown error occured while getting bucket", err)
 	}
 
 	// Check policy existence on the S3 server
@@ -195,6 +173,40 @@ func (r *PolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		fmt.Sprintf("The policy [%s] was updated according to its matching custom resource", policyResource.Spec.Name), nil)
 }
 
+func (r *PolicyReconciler) handlePolicyDeletion(ctx context.Context, req reconcile.Request, policyResource *s3v1alpha1.Policy) (reconcile.Result, error) {
+	logger := log.FromContext(ctx)
+	if controllerutil.ContainsFinalizer(policyResource, policyFinalizer) {
+		// Run finalization logic for policyFinalizer. If the
+		// finalization logic fails, don't remove the finalizer so
+		// that we can retry during the next reconciliation.
+		if err := r.finalizePolicy(ctx, policyResource); err != nil {
+			// return ctrl.Result{}, err
+			logger.Error(err, "an error occurred when attempting to finalize the policy", "policy", policyResource.Spec.Name)
+			// return ctrl.Result{}, err
+			return r.SetPolicyStatusConditionAndUpdate(ctx, policyResource, "OperatorFailed", metav1.ConditionFalse, "PolicyFinalizeFailed",
+				fmt.Sprintf("An error occurred when attempting to delete policy [%s]", policyResource.Spec.Name), err)
+		}
+
+		// Remove policyFinalizer. Once all finalizers have been
+		// removed, the object will be deleted.
+		controllerutil.RemoveFinalizer(policyResource, policyFinalizer)
+
+		if ok := controllerutil.RemoveFinalizer(policyResource, policyFinalizer); !ok {
+			logger.Info("Failed to remove finalizer for S3Instance", "NamespacedName", req.NamespacedName.String())
+			return ctrl.Result{Requeue: true}, nil
+		}
+
+		err := r.Update(ctx, policyResource)
+		if err != nil {
+			logger.Error(err, "an error occurred when removing finalizer from policy", "policy", policyResource.Spec.Name)
+			// return ctrl.Result{}, err
+			return r.SetPolicyStatusConditionAndUpdate(ctx, policyResource, "OperatorFailed", metav1.ConditionFalse, "PolicyFinalizerRemovalFailed",
+				fmt.Sprintf("An error occurred when attempting to remove the finalizer from policy [%s]", policyResource.Spec.Name), err)
+		}
+	}
+	return ctrl.Result{}, nil
+}
+
 // SetupWithManager sets up the controller with the Manager.
 func (r *PolicyReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
@@ -235,12 +247,12 @@ func IsPolicyMatchingWithCustomResource(policyResource *s3v1alpha1.Policy, effec
 
 func (r *PolicyReconciler) finalizePolicy(ctx context.Context, policyResource *s3v1alpha1.Policy) error {
 	logger := log.FromContext(ctx)
-	s3Client, err := r.getS3InstanceForObject(ctx, policyResource)
+	s3Client, err := controllerhelpers.GetS3ClientForRessource(ctx, r.Client, policyResource.Name, policyResource.Namespace, policyResource.Spec.S3InstanceRef)
 	if err != nil {
 		logger.Error(err, "an error occurred while getting s3Client")
 		return err
 	}
-	if r.PolicyDeletion {
+	if s3Client.GetConfig().PolicyDeletionEnabled {
 		return s3Client.DeletePolicy(policyResource.Spec.Name)
 	}
 	return nil
@@ -266,28 +278,5 @@ func (r *PolicyReconciler) SetPolicyStatusConditionAndUpdate(ctx context.Context
 		logger.Error(err, "an error occurred while updating the status of the policy resource")
 		return ctrl.Result{}, utilerrors.NewAggregate([]error{err, srcError})
 	}
-	return ctrl.Result{}, srcError
-}
-
-func (r *PolicyReconciler) getS3InstanceForObject(ctx context.Context, policyResource *s3v1alpha1.Policy) (factory.S3Client, error) {
-	logger := log.FromContext(ctx)
-	if policyResource.Spec.S3InstanceRef == "" {
-		logger.Info("Bucket resource doesn't refer to s3Instance, failback to default one")
-		s3Client, found := r.S3ClientCache.Get("default")
-		if !found {
-			err := &s3ClientCache.S3ClientCacheError{Reason: "No default client was found"}
-			logger.Error(err, "No default client was found")
-			return nil, err
-		}
-		return s3Client, nil
-	} else {
-		logger.Info(fmt.Sprintf("Bucket resource doesn't refer to s3Instance: %s, search instance in cache", policyResource.Spec.S3InstanceRef))
-		s3Client, found := r.S3ClientCache.Get(policyResource.Spec.S3InstanceRef)
-		if !found {
-			err := &s3ClientCache.S3ClientCacheError{Reason: fmt.Sprintf("S3InstanceRef: %s,not found in cache", policyResource.Spec.S3InstanceRef)}
-			logger.Error(err, "No client was found")
-			return nil, err
-		}
-		return s3Client, nil
-	}
+	return ctrl.Result{RequeueAfter: r.ReconcilePeriod}, srcError
 }

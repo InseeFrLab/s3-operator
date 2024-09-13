@@ -35,32 +35,65 @@ spec:
           spec:
             description: S3InstanceSpec defines the desired state of S3Instance
             properties:
-              caCertificateBase64:
-                description: CaCertificatesBase64 associated to the S3InstanceUrl
+              allowedNamespaces:
+                description: AllowedNamespaces to use this S3InstanceUrl if empty
+                  only the namespace of this instance url is allowed to use it
                 items:
                   type: string
                 type: array
+              bucketDeletionEnabled:
+                default: false
+                description: BucketDeletionEnabled Trigger bucket deletion on the
+                  S3 backend upon CR deletion. Will fail if bucket is not empty.
+                type: boolean
+              caCertSecretRef:
+                description: Secret containing key ca.crt with the certificate associated
+                  to the S3InstanceUrl
+                type: string
+              pathDeletionEnabled:
+                default: false
+                description: PathDeletionEnabled Trigger path deletion on the S3 backend
+                  upon CR deletion. Limited to deleting the `.keep` files used by
+                  the operator.
+                type: boolean
+              policyDeletionEnabled:
+                default: false
+                description: PolicyDeletionEnabled Trigger policy deletion on the
+                  S3 backend upon CR deletion.
+                type: boolean
               region:
                 description: region associated to the S3Instance
                 type: string
               s3Provider:
+                default: minio
                 description: type of the S3Instance
+                enum:
+                - minio
+                - mockedS3Provider
                 type: string
-              secretName:
-                description: SecretName associated to the S3Instance containing accessKey
-                  and secretKey
+                x-kubernetes-validations:
+                - message: S3Provider is immutable
+                  rule: self == oldSelf
+              s3UserDeletionEnabled:
+                default: false
+                description: S3UserDeletionEnabled Trigger S3 deletion on the S3 backend
+                  upon CR deletion.
+                type: boolean
+              secretRef:
+                description: Ref to Secret associated to the S3Instance containing
+                  accessKey and secretKey
                 type: string
-              urlEndpoint:
+              url:
                 description: url of the S3Instance
                 type: string
-              useSSL:
-                description: useSSL when connecting to the S3Instance
-                type: boolean
             required:
-            - region
+            - bucketDeletionEnabled
+            - pathDeletionEnabled
+            - policyDeletionEnabled
             - s3Provider
-            - secretName
-            - urlEndpoint
+            - s3UserDeletionEnabled
+            - secretRef
+            - url
             type: object
           status:
             description: S3InstanceStatus defines the observed state of S3Instance

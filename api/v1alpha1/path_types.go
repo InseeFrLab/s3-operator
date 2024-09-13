@@ -37,7 +37,11 @@ type PathSpec struct {
 	Paths []string `json:"paths,omitempty"`
 
 	// s3InstanceRef where create the Paths
-	// +kubebuilder:validation:Optional
+	// +kubebuilder:default=s3-operator/default
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="s3InstanceRef is immutable"
+	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?(/[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?)?$`
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=127
 	S3InstanceRef string `json:"s3InstanceRef,omitempty"`
 }
 

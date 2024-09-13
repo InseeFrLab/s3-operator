@@ -1,4 +1,4 @@
-package factory
+package s3factory
 
 import (
 	"github.com/minio/madmin-go/v3"
@@ -106,6 +106,10 @@ func (mockedS3Provider *MockedS3Client) GetUserPolicies(name string) ([]string, 
 func (mockedS3Provider *MockedS3Client) RemovePoliciesFromUser(username string, policies []string) error {
 	s3Logger.Info("Removing policies from user", "user", username)
 	return nil
+}
+
+func (mockedS3Provider *MockedS3Client) ListBuckets() ([]string, error) {
+	return []string{}, nil
 }
 
 func (mockedS3Provider *MockedS3Client) GetConfig() *S3Config {

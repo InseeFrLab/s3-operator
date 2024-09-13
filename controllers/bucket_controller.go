@@ -22,11 +22,10 @@ import (
 	"time"
 
 	s3v1alpha1 "github.com/InseeFrLab/s3-operator/api/v1alpha1"
-	s3ClientCache "github.com/InseeFrLab/s3-operator/internal/s3"
-	"github.com/InseeFrLab/s3-operator/internal/s3/factory"
+	controllerhelpers "github.com/InseeFrLab/s3-operator/internal/controllerhelper"
 
 	utils "github.com/InseeFrLab/s3-operator/internal/utils"
-	"k8s.io/apimachinery/pkg/api/errors"
+	k8sapierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
@@ -37,22 +36,21 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
 // BucketReconciler reconciles a Bucket object
 type BucketReconciler struct {
 	client.Client
-	Scheme               *runtime.Scheme
-	S3ClientCache        *s3ClientCache.S3ClientCache
-	BucketDeletion       bool
-	S3LabelSelectorValue string
+	Scheme          *runtime.Scheme
+	ReconcilePeriod time.Duration
 }
+
+const bucketFinalizer = "s3.onyxia.sh/finalizer"
 
 //+kubebuilder:rbac:groups=s3.onyxia.sh,resources=buckets,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=s3.onyxia.sh,resources=buckets/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=s3.onyxia.sh,resources=buckets/finalizers,verbs=update
-
-const bucketFinalizer = "s3.onyxia.sh/finalizer"
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -66,7 +64,7 @@ func (r *BucketReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	bucketResource := &s3v1alpha1.Bucket{}
 	err := r.Get(ctx, req.NamespacedName, bucketResource)
 	if err != nil {
-		if errors.IsNotFound(err) {
+		if k8sapierrors.IsNotFound(err) {
 			logger.Info("The Bucket custom resource has been removed ; as such the Bucket controller is NOOP.", "req.Name", req.Name)
 			return ctrl.Result{}, nil
 		}
@@ -74,51 +72,9 @@ func (r *BucketReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		return ctrl.Result{}, err
 	}
 
-	// check if this object must be manage by this instance
-	if r.S3LabelSelectorValue != "" {
-		labelSelectorValue, found := bucketResource.Labels[utils.S3OperatorBucketLabelSelectorKey]
-		if !found {
-			logger.Info("This bucket ressouce will not be manage by this instance because this instance require that Bucket get labelSelector and label selector not found", "req.Name", req.Name, "Bucket Labels", bucketResource.Labels, "S3OperatorBucketLabelSelectorKey", utils.S3OperatorBucketLabelSelectorKey)
-			return ctrl.Result{}, nil
-		}
-		if labelSelectorValue != r.S3LabelSelectorValue {
-			logger.Info("This bucket ressouce will not be manage by this instance because this instance require that Bucket get specific a specific labelSelector value", "req.Name", req.Name, "expected", r.S3LabelSelectorValue, "current", labelSelectorValue)
-			return ctrl.Result{}, nil
-		}
-	}
-
-	// Managing bucket deletion with a finalizer
-	// REF : https://sdk.operatorframework.io/docs/building-operators/golang/advanced-topics/#external-resources
-	isMarkedForDeletion := bucketResource.GetDeletionTimestamp() != nil
-	if isMarkedForDeletion {
-		if controllerutil.ContainsFinalizer(bucketResource, bucketFinalizer) {
-			// Run finalization logic for bucketFinalizer. If the
-			// finalization logic fails, don't remove the finalizer so
-			// that we can retry during the next reconciliation.
-			if err := r.finalizeBucket(ctx, bucketResource); err != nil {
-				// return ctrl.Result{}, err
-				logger.Error(err, "an error occurred when attempting to finalize the bucket", "bucket", bucketResource.Spec.Name)
-				// return ctrl.Result{}, err
-				return r.SetBucketStatusConditionAndUpdate(ctx, bucketResource, "OperatorFailed", metav1.ConditionFalse, "BucketFinalizeFailed",
-					fmt.Sprintf("An error occurred when attempting to delete bucket [%s]", bucketResource.Spec.Name), err)
-			}
-
-			// Remove bucketFinalizer. Once all finalizers have been
-			// removed, the object will be deleted.
-			controllerutil.RemoveFinalizer(bucketResource, bucketFinalizer)
-			err := r.Update(ctx, bucketResource)
-			if err != nil {
-				logger.Error(err, "an error occurred when removing finalizer from bucket", "bucket", bucketResource.Spec.Name)
-				// return ctrl.Result{}, err
-				return r.SetBucketStatusConditionAndUpdate(ctx, bucketResource, "OperatorFailed", metav1.ConditionFalse, "BucketFinalizerRemovalFailed",
-					fmt.Sprintf("An error occurred when attempting to remove the finalizer from bucket [%s]", bucketResource.Spec.Name), err)
-			}
-		}
-		return ctrl.Result{}, nil
-	}
-
 	// Add finalizer for this CR
 	if !controllerutil.ContainsFinalizer(bucketResource, bucketFinalizer) {
+		logger.Info("Adding finalizer on ressource")
 		controllerutil.AddFinalizer(bucketResource, bucketFinalizer)
 		err = r.Update(ctx, bucketResource)
 		if err != nil {
@@ -126,14 +82,37 @@ func (r *BucketReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 			return r.SetBucketStatusConditionAndUpdate(ctx, bucketResource, "OperatorFailed", metav1.ConditionFalse, "BucketFinalizerAddFailed",
 				fmt.Sprintf("An error occurred when attempting to add the finalizer from bucket [%s]", bucketResource.Spec.Name), err)
 		}
+
+		// Let's re-fetch the S3Instance Custom Resource after adding the finalizer
+		// so that we have the latest state of the resource on the cluster and we will avoid
+		// raise the issue "the object has been modified, please apply
+		// your changes to the latest version and try again" which would re-trigger the reconciliation
+		// if we try to update it again in the following operations
+		if err := r.Get(ctx, req.NamespacedName, bucketResource); err != nil {
+			logger.Error(err, "Failed to re-fetch bucketResource", "NamespacedName", req.NamespacedName.String())
+			return ctrl.Result{}, err
+		}
 	}
 
-	// Create S3Client
-	s3Client, err := r.getS3InstanceForObject(ctx, bucketResource)
+	// // Managing bucket deletion with a finalizer
+	// // REF : https://sdk.operatorframework.io/docs/building-operators/golang/advanced-topics/#external-resources
+	if bucketResource.GetDeletionTimestamp() != nil {
+		logger.Info("bucketResource have been marked for deletion")
+		return r.handleDeletion(ctx, req, bucketResource)
+	}
+
+	return r.handleReconciliation(ctx, bucketResource)
+
+}
+
+func (r *BucketReconciler) handleReconciliation(ctx context.Context, bucketResource *s3v1alpha1.Bucket) (reconcile.Result, error) {
+	logger := log.FromContext(ctx)
+
+	s3Client, err := controllerhelpers.GetS3ClientForRessource(ctx, r.Client, bucketResource.Name, bucketResource.Namespace, bucketResource.Spec.S3InstanceRef)
 	if err != nil {
 		logger.Error(err, "an error occurred while getting s3Client")
 		return r.SetBucketStatusConditionAndUpdate(ctx, bucketResource, "OperatorFailed", metav1.ConditionFalse, "FailedS3Client",
-			"Getting s3Client in cache has failed", err)
+			"Unknown error occured while getting bucket", err)
 	}
 
 	// Bucket lifecycle management (other than deletion) starts here
@@ -147,36 +126,22 @@ func (r *BucketReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 
 	// If the bucket does not exist, it is created based on the CR (with potential quotas and paths)
 	if !found {
+		return r.handleBucketCreation(ctx, bucketResource)
+	}
 
-		// Bucket creation
-		err = s3Client.CreateBucket(bucketResource.Spec.Name)
-		if err != nil {
-			logger.Error(err, "an error occurred while creating a bucket", "bucket", bucketResource.Spec.Name)
-			return r.SetBucketStatusConditionAndUpdate(ctx, bucketResource, "OperatorFailed", metav1.ConditionFalse, "BucketCreationFailed",
-				fmt.Sprintf("Creation of bucket [%s] on S3 instance has failed", bucketResource.Spec.Name), err)
-		}
+	logger.Info("this bucket already exists and will be reconciled")
+	return r.handleBucketUpdate(ctx, bucketResource)
 
-		// Setting quotas
-		err = s3Client.SetQuota(bucketResource.Spec.Name, bucketResource.Spec.Quota.Default)
-		if err != nil {
-			logger.Error(err, "an error occurred while setting a quota on a bucket", "bucket", bucketResource.Spec.Name, "quota", bucketResource.Spec.Quota.Default)
-			return r.SetBucketStatusConditionAndUpdate(ctx, bucketResource, "OperatorFailed", metav1.ConditionFalse, "SetQuotaOnBucketFailed",
-				fmt.Sprintf("Setting a quota of [%v] on bucket [%s] has failed", bucketResource.Spec.Quota.Default, bucketResource.Spec.Name), err)
-		}
+}
 
-		// Path creation
-		for _, v := range bucketResource.Spec.Paths {
-			err = s3Client.CreatePath(bucketResource.Spec.Name, v)
-			if err != nil {
-				logger.Error(err, "an error occurred while creating a path on a bucket", "bucket", bucketResource.Spec.Name, "path", v)
-				return r.SetBucketStatusConditionAndUpdate(ctx, bucketResource, "OperatorFailed", metav1.ConditionFalse, "CreatingPathOnBucketFailed",
-					fmt.Sprintf("Creating the path [%s] on bucket [%s] has failed", v, bucketResource.Spec.Name), err)
-			}
-		}
+func (r *BucketReconciler) handleBucketUpdate(ctx context.Context, bucketResource *s3v1alpha1.Bucket) (reconcile.Result, error) {
+	logger := log.FromContext(ctx)
 
-		// The bucket creation, quota setting and path creation happened without any error
-		return r.SetBucketStatusConditionAndUpdate(ctx, bucketResource, "OperatorSucceeded", metav1.ConditionTrue, "BucketCreated",
-			fmt.Sprintf("The bucket [%s] was created with its quota and paths", bucketResource.Spec.Name), nil)
+	s3Client, err := controllerhelpers.GetS3ClientForRessource(ctx, r.Client, bucketResource.Name, bucketResource.Namespace, bucketResource.Spec.S3InstanceRef)
+	if err != nil {
+		logger.Error(err, "an error occurred while getting s3Client")
+		return r.SetBucketStatusConditionAndUpdate(ctx, bucketResource, "OperatorFailed", metav1.ConditionFalse, "FailedS3Client",
+			"Unknown error occured while getting bucket", err)
 	}
 
 	// If the bucket exists on the S3 server, then we need to compare it to
@@ -236,7 +201,79 @@ func (r *BucketReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	// The bucket reconciliation with its CR was succesful (or NOOP)
 	return r.SetBucketStatusConditionAndUpdate(ctx, bucketResource, "OperatorSucceeded", metav1.ConditionTrue, "BucketUpdated",
 		fmt.Sprintf("The bucket [%s] was updated according to its matching custom resource", bucketResource.Spec.Name), nil)
+}
 
+func (r *BucketReconciler) handleBucketCreation(ctx context.Context, bucketResource *s3v1alpha1.Bucket) (reconcile.Result, error) {
+	logger := log.FromContext(ctx)
+
+	s3Client, err := controllerhelpers.GetS3ClientForRessource(ctx, r.Client, bucketResource.Name, bucketResource.Namespace, bucketResource.Spec.S3InstanceRef)
+	if err != nil {
+		logger.Error(err, "an error occurred while getting s3Client")
+		return r.SetBucketStatusConditionAndUpdate(ctx, bucketResource, "OperatorFailed", metav1.ConditionFalse, "FailedS3Client",
+			"Unknown error occured while getting bucket", err)
+	}
+
+	// Bucket creation
+	err = s3Client.CreateBucket(bucketResource.Spec.Name)
+	if err != nil {
+		logger.Error(err, "an error occurred while creating a bucket", "bucket", bucketResource.Spec.Name)
+		return r.SetBucketStatusConditionAndUpdate(ctx, bucketResource, "OperatorFailed", metav1.ConditionFalse, "BucketCreationFailed",
+			fmt.Sprintf("Creation of bucket [%s] on S3 instance has failed", bucketResource.Spec.Name), err)
+	}
+
+	// Setting quotas
+	err = s3Client.SetQuota(bucketResource.Spec.Name, bucketResource.Spec.Quota.Default)
+	if err != nil {
+		logger.Error(err, "an error occurred while setting a quota on a bucket", "bucket", bucketResource.Spec.Name, "quota", bucketResource.Spec.Quota.Default)
+		return r.SetBucketStatusConditionAndUpdate(ctx, bucketResource, "OperatorFailed", metav1.ConditionFalse, "SetQuotaOnBucketFailed",
+			fmt.Sprintf("Setting a quota of [%v] on bucket [%s] has failed", bucketResource.Spec.Quota.Default, bucketResource.Spec.Name), err)
+	}
+
+	// Path creation
+	for _, v := range bucketResource.Spec.Paths {
+		err = s3Client.CreatePath(bucketResource.Spec.Name, v)
+		if err != nil {
+			logger.Error(err, "an error occurred while creating a path on a bucket", "bucket", bucketResource.Spec.Name, "path", v)
+			return r.SetBucketStatusConditionAndUpdate(ctx, bucketResource, "OperatorFailed", metav1.ConditionFalse, "CreatingPathOnBucketFailed",
+				fmt.Sprintf("Creating the path [%s] on bucket [%s] has failed", v, bucketResource.Spec.Name), err)
+		}
+	}
+
+	// The bucket creation, quota setting and path creation happened without any error
+	return r.SetBucketStatusConditionAndUpdate(ctx, bucketResource, "OperatorSucceeded", metav1.ConditionTrue, "BucketCreated",
+		fmt.Sprintf("The bucket [%s] was created with its quota and paths", bucketResource.Spec.Name), nil)
+}
+
+func (r *BucketReconciler) handleDeletion(ctx context.Context, req reconcile.Request, bucketResource *s3v1alpha1.Bucket) (reconcile.Result, error) {
+	logger := log.FromContext(ctx)
+
+	if controllerutil.ContainsFinalizer(bucketResource, bucketFinalizer) {
+
+		if err := r.finalizeBucket(ctx, bucketResource); err != nil {
+
+			logger.Error(err, "an error occurred when attempting to finalize the bucket", "bucket", bucketResource.Spec.Name)
+
+			return r.SetBucketStatusConditionAndUpdate(ctx, bucketResource, "OperatorFailed", metav1.ConditionFalse, "BucketFinalizeFailed",
+				fmt.Sprintf("An error occurred when attempting to delete bucket [%s]", bucketResource.Spec.Name), err)
+		}
+
+		if ok := controllerutil.RemoveFinalizer(bucketResource, bucketFinalizer); !ok {
+			logger.Info("Failed to remove finalizer for bucketResource", "NamespacedName", req.NamespacedName.String())
+			return ctrl.Result{Requeue: true}, nil
+		}
+
+		// Let's re-fetch the S3Instance Custom Resource after removing the finalizer
+		// so that we have the latest state of the resource on the cluster and we will avoid
+		// raise the issue "the object has been modified, please apply
+		// your changes to the latest version and try again" which would re-trigger the reconciliation
+		// if we try to update it again in the following operations
+		if err := r.Update(ctx, bucketResource); err != nil {
+			logger.Error(err, "Failed to remove finalizer for bucketResource", "NamespacedName", req.NamespacedName.String())
+			return ctrl.Result{}, err
+		}
+
+	}
+	return ctrl.Result{}, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.*
@@ -261,12 +298,12 @@ func (r *BucketReconciler) SetupWithManager(mgr ctrl.Manager) error {
 func (r *BucketReconciler) finalizeBucket(ctx context.Context, bucketResource *s3v1alpha1.Bucket) error {
 	logger := log.FromContext(ctx)
 
-	s3Client, err := r.getS3InstanceForObject(ctx, bucketResource)
+	s3Client, err := controllerhelpers.GetS3ClientForRessource(ctx, r.Client, bucketResource.Name, bucketResource.Namespace, bucketResource.Spec.S3InstanceRef)
 	if err != nil {
 		logger.Error(err, "an error occurred while getting s3Client")
 		return err
 	}
-	if r.BucketDeletion {
+	if s3Client.GetConfig().BucketDeletionEnabled {
 		return s3Client.DeleteBucket(bucketResource.Spec.Name)
 	}
 	return nil
@@ -292,29 +329,5 @@ func (r *BucketReconciler) SetBucketStatusConditionAndUpdate(ctx context.Context
 		logger.Error(err, "an error occurred while updating the status of the bucket resource")
 		return ctrl.Result{}, utilerrors.NewAggregate([]error{err, srcError})
 	}
-	return ctrl.Result{}, srcError
-}
-
-func (r *BucketReconciler) getS3InstanceForObject(ctx context.Context, bucketResource *s3v1alpha1.Bucket) (factory.S3Client, error) {
-	logger := log.FromContext(ctx)
-	if bucketResource.Spec.S3InstanceRef == "" {
-		logger.Info("Bucket resource doesn't have S3InstanceRef fill, failback to default instance")
-		s3Client, found := r.S3ClientCache.Get("default")
-		if !found {
-			err := &s3ClientCache.S3ClientCacheError{Reason: "No default client was found"}
-			logger.Error(err, "No default client was found")
-			return nil, err
-		}
-		return s3Client, nil
-	} else {
-
-		logger.Info(fmt.Sprintf("Bucket resource refer to s3Instance: %s, search instance in cache", bucketResource.Spec.S3InstanceRef))
-		s3Client, found := r.S3ClientCache.Get(bucketResource.Spec.S3InstanceRef)
-		if !found {
-			err := &s3ClientCache.S3ClientCacheError{Reason: fmt.Sprintf("S3InstanceRef: %s, not found in cache", bucketResource.Spec.S3InstanceRef)}
-			logger.Error(err, "No client was found")
-			return nil, err
-		}
-		return s3Client, nil
-	}
+	return ctrl.Result{RequeueAfter: r.ReconcilePeriod}, srcError
 }

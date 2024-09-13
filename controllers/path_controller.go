@@ -21,8 +21,7 @@ import (
 	"fmt"
 	"time"
 
-	s3ClientCache "github.com/InseeFrLab/s3-operator/internal/s3"
-	"k8s.io/apimachinery/pkg/api/errors"
+	k8sapierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
@@ -33,19 +32,18 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	s3v1alpha1 "github.com/InseeFrLab/s3-operator/api/v1alpha1"
-	"github.com/InseeFrLab/s3-operator/internal/s3/factory"
+	controllerhelpers "github.com/InseeFrLab/s3-operator/internal/controllerhelper"
 	"github.com/InseeFrLab/s3-operator/internal/utils"
 )
 
 // PathReconciler reconciles a Path object
 type PathReconciler struct {
 	client.Client
-	Scheme               *runtime.Scheme
-	S3ClientCache        *s3ClientCache.S3ClientCache
-	PathDeletion         bool
-	S3LabelSelectorValue string
+	Scheme          *runtime.Scheme
+	ReconcilePeriod time.Duration
 }
 
 //+kubebuilder:rbac:groups=s3.onyxia.sh,resources=paths,verbs=get;list;watch;create;update;patch;delete
@@ -66,55 +64,12 @@ func (r *PathReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	pathResource := &s3v1alpha1.Path{}
 	err := r.Get(ctx, req.NamespacedName, pathResource)
 	if err != nil {
-		if errors.IsNotFound(err) {
+		if k8sapierrors.IsNotFound(err) {
 			logger.Info("The Path custom resource has been removed ; as such the Path controller is NOOP.", "req.Name", req.Name)
 			return ctrl.Result{}, nil
 		}
 		logger.Error(err, "An error occurred when attempting to read the Path resource from the Kubernetes cluster")
 		return ctrl.Result{}, err
-	}
-
-	// check if this object must be manage by this instance
-	if r.S3LabelSelectorValue != "" {
-		labelSelectorValue, found := pathResource.Labels[utils.S3OperatorPathLabelSelectorKey]
-		if !found {
-			logger.Info("This paht ressouce will not be manage by this instance because this instance require that path get labelSelector and label selector not found", "req.Name", req.Name, "Bucket Labels", pathResource.Labels, "S3OperatorBucketLabelSelectorKey", utils.S3OperatorBucketLabelSelectorKey)
-			return ctrl.Result{}, nil
-		}
-		if labelSelectorValue != r.S3LabelSelectorValue {
-			logger.Info("This path ressouce will not be manage by this instance because this instance require that path get specific a specific labelSelector value", "req.Name", req.Name, "expected", r.S3LabelSelectorValue, "current", labelSelectorValue)
-			return ctrl.Result{}, nil
-		}
-	}
-
-	// Managing path deletion with a finalizer
-	// REF : https://sdk.operatorframework.io/docs/building-operators/golang/advanced-topics/#external-resources
-	isMarkedForDeletion := pathResource.GetDeletionTimestamp() != nil
-	if isMarkedForDeletion {
-		if controllerutil.ContainsFinalizer(pathResource, pathFinalizer) {
-			// Run finalization logic for pathFinalizer. If the
-			// finalization logic fails, don't remove the finalizer so
-			// that we can retry during the next reconciliation.
-			if err := r.finalizePath(ctx, pathResource); err != nil {
-				// return ctrl.Result{}, err
-				logger.Error(err, "an error occurred when attempting to finalize the path", "path", pathResource.Name)
-				// return ctrl.Result{}, err
-				return r.SetPathStatusConditionAndUpdate(ctx, pathResource, "OperatorFailed", metav1.ConditionFalse, "PathFinalizeFailed",
-					fmt.Sprintf("An error occurred when attempting to delete path [%s]", pathResource.Name), err)
-			}
-
-			// Remove pathFinalizer. Once all finalizers have been
-			// removed, the object will be deleted.
-			controllerutil.RemoveFinalizer(pathResource, pathFinalizer)
-			err := r.Update(ctx, pathResource)
-			if err != nil {
-				logger.Error(err, "an error occurred when removing finalizer from path", "path", pathResource.Name)
-				// return ctrl.Result{}, err
-				return r.SetPathStatusConditionAndUpdate(ctx, pathResource, "OperatorFailed", metav1.ConditionFalse, "PathFinalizerRemovalFailed",
-					fmt.Sprintf("An error occurred when attempting to remove the finalizer from path [%s]", pathResource.Name), err)
-			}
-		}
-		return ctrl.Result{}, nil
 	}
 
 	// Add finalizer for this CR
@@ -127,14 +82,37 @@ func (r *PathReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 			return r.SetPathStatusConditionAndUpdate(ctx, pathResource, "OperatorFailed", metav1.ConditionFalse, "PathFinalizerAddFailed",
 				fmt.Sprintf("An error occurred when attempting to add the finalizer from path [%s]", pathResource.Name), err)
 		}
+		// Let's re-fetch the S3Instance Custom Resource after adding the finalizer
+		// so that we have the latest state of the resource on the cluster and we will avoid
+		// raise the issue "the object has been modified, please apply
+		// your changes to the latest version and try again" which would re-trigger the reconciliation
+		// if we try to update it again in the following operations
+		if err := r.Get(ctx, req.NamespacedName, pathResource); err != nil {
+			logger.Error(err, "Failed to re-fetch pathResource", "NamespacedName", req.NamespacedName.String())
+			return ctrl.Result{}, err
+		}
 	}
 
+	// Managing path deletion with a finalizer
+	// REF : https://sdk.operatorframework.io/docs/building-operators/golang/advanced-topics/#external-resources
+	if pathResource.GetDeletionTimestamp() != nil {
+		return r.handlePathDeletion(ctx, req, pathResource)
+	}
+
+	return r.handlePathReconciliation(ctx, pathResource)
+
+}
+
+func (r *PathReconciler) handlePathReconciliation(ctx context.Context, pathResource *s3v1alpha1.Path) (reconcile.Result, error) {
+
+	logger := log.FromContext(ctx)
+
 	// Create S3Client
-	s3Client, err := r.getS3InstanceForObject(ctx, pathResource)
+	s3Client, err := controllerhelpers.GetS3ClientForRessource(ctx, r.Client, pathResource.Name, pathResource.Namespace, pathResource.Spec.S3InstanceRef)
 	if err != nil {
 		logger.Error(err, "an error occurred while getting s3Client")
 		return r.SetPathStatusConditionAndUpdate(ctx, pathResource, "OperatorFailed", metav1.ConditionFalse, "FailedS3Client",
-			"Getting s3Client in cache has failed", err)
+			"Unknown error occured while getting bucket", err)
 	}
 
 	// Path lifecycle management (other than deletion) starts here
@@ -184,7 +162,45 @@ func (r *PathReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	// The bucket reconciliation with its CR was succesful (or NOOP)
 	return r.SetPathStatusConditionAndUpdate(ctx, pathResource, "OperatorSucceeded", metav1.ConditionTrue, "PathsCreated",
 		fmt.Sprintf("The paths were created according to the specs of the [%s] CR", pathResource.Name), nil)
+}
 
+func (r *PathReconciler) handlePathDeletion(ctx context.Context, req reconcile.Request, pathResource *s3v1alpha1.Path) (reconcile.Result, error) {
+	logger := log.FromContext(ctx)
+
+	if controllerutil.ContainsFinalizer(pathResource, pathFinalizer) {
+		// Run finalization logic for pathFinalizer. If the
+		// finalization logic fails, don't remove the finalizer so
+		// that we can retry during the next reconciliation.
+		if err := r.finalizePath(ctx, pathResource); err != nil {
+			// return ctrl.Result{}, err
+			logger.Error(err, "an error occurred when attempting to finalize the path", "path", pathResource.Name)
+			// return ctrl.Result{}, err
+			return r.SetPathStatusConditionAndUpdate(ctx, pathResource, "OperatorFailed", metav1.ConditionFalse, "PathFinalizeFailed",
+				fmt.Sprintf("An error occurred when attempting to delete path [%s]", pathResource.Name), err)
+		}
+
+		// Remove pathFinalizer. Once all finalizers have been
+		// removed, the object will be deleted.
+
+		if ok := controllerutil.RemoveFinalizer(pathResource, pathFinalizer); !ok {
+			logger.Info("Failed to remove finalizer for S3Instance", "NamespacedName", req.NamespacedName.String())
+			return ctrl.Result{Requeue: true}, nil
+		}
+
+		// Let's re-fetch the S3Instance Custom Resource after removing the finalizer
+		// so that we have the latest state of the resource on the cluster and we will avoid
+		// raise the issue "the object has been modified, please apply
+		// your changes to the latest version and try again" which would re-trigger the reconciliation
+		// if we try to update it again in the following operations
+		if err := r.Update(ctx, pathResource); err != nil {
+			logger.Error(err, "an error occurred when removing finalizer from path", "path", pathResource.Name)
+			// return ctrl.Result{}, err
+			return r.SetPathStatusConditionAndUpdate(ctx, pathResource, "OperatorFailed", metav1.ConditionFalse, "PathFinalizerRemovalFailed",
+				fmt.Sprintf("An error occurred when attempting to remove the finalizer from path [%s]", pathResource.Name), err)
+		}
+
+	}
+	return ctrl.Result{}, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.
@@ -208,13 +224,13 @@ func (r *PathReconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 func (r *PathReconciler) finalizePath(ctx context.Context, pathResource *s3v1alpha1.Path) error {
 	logger := log.FromContext(ctx)
-	s3Client, err := r.getS3InstanceForObject(ctx, pathResource)
+	s3Client, err := controllerhelpers.GetS3ClientForRessource(ctx, r.Client, pathResource.Name, pathResource.Namespace, pathResource.Spec.S3InstanceRef)
 	if err != nil {
 		logger.Error(err, "an error occurred while getting s3Client")
 		return err
 	}
 
-	if r.PathDeletion {
+	if s3Client.GetConfig().PathDeletionEnabled {
 		var failedPaths []string = make([]string, 0)
 		for _, path := range pathResource.Spec.Paths {
 
@@ -258,29 +274,5 @@ func (r *PathReconciler) SetPathStatusConditionAndUpdate(ctx context.Context, pa
 		logger.Error(err, "an error occurred while updating the status of the path resource")
 		return ctrl.Result{}, utilerrors.NewAggregate([]error{err, srcError})
 	}
-	return ctrl.Result{}, srcError
-}
-
-func (r *PathReconciler) getS3InstanceForObject(ctx context.Context, pathResource *s3v1alpha1.Path) (factory.S3Client, error) {
-	logger := log.FromContext(ctx)
-	if pathResource.Spec.S3InstanceRef == "" {
-		logger.Info("Bucket resource doesn't refer to s3Instance, failback to default one")
-		s3Client, found := r.S3ClientCache.Get("default")
-		if !found {
-			err := &s3ClientCache.S3ClientCacheError{Reason: "No default client was found"}
-			logger.Error(err, "No default client was found")
-			return nil, err
-		}
-		return s3Client, nil
-	} else {
-
-		logger.Info(fmt.Sprintf("Bucket resource doesn't refer to s3Instance: %s, search instance in cache", pathResource.Spec.S3InstanceRef))
-		s3Client, found := r.S3ClientCache.Get(pathResource.Spec.S3InstanceRef)
-		if !found {
-			err := &s3ClientCache.S3ClientCacheError{Reason: fmt.Sprintf("S3InstanceRef: %s,not found in cache", pathResource.Spec.S3InstanceRef)}
-			logger.Error(err, "No client was found")
-			return nil, err
-		}
-		return s3Client, nil
-	}
+	return ctrl.Result{RequeueAfter: r.ReconcilePeriod}, srcError
 }

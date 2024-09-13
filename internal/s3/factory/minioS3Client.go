@@ -63,6 +63,7 @@ func newMinioS3Client(S3Config *S3Config) *MinioS3Client {
 }
 
 func addTransportOptions(S3Config *S3Config, minioOptions *minio.Options) {
+
 	if len(S3Config.CaCertificatesBase64) > 0 {
 
 		rootCAs, _ := x509.SystemCertPool()

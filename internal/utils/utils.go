@@ -3,6 +3,7 @@ package utils
 import (
 	"time"
 
+	glob "github.com/InseeFrLab/s3-operator/internal/utils/glob"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -26,4 +27,8 @@ func UpdateConditions(existingConditions []metav1.Condition, newCondition metav1
 	}
 
 	return append([]metav1.Condition{newCondition}, existingConditions...)
+}
+
+func IsAllowedNamespaces(namespace string, namespaces []string) bool {
+	return glob.MatchStringInList(namespaces, namespace, glob.REGEXP)
 }

@@ -21,6 +21,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -83,19 +84,6 @@ func (r *S3UserReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		return ctrl.Result{}, err
 	}
 
-	// check if this object must be manage by this instance
-	if r.S3LabelSelectorValue != "" {
-		labelSelectorValue, found := userResource.Labels[utils.S3OperatorUserLabelSelectorKey]
-		if !found {
-			logger.Info("This user ressouce will not be manage by this instance because this instance require that Bucket get labelSelector and label selector not found", "req.Name", req.Name, "Bucket Labels", userResource.Labels, "S3OperatorBucketLabelSelectorKey", utils.S3OperatorBucketLabelSelectorKey)
-			return ctrl.Result{}, nil
-		}
-		if labelSelectorValue != r.S3LabelSelectorValue {
-			logger.Info("This user ressouce will not be manage by this instance because this instance require that Bucket get specific a specific labelSelector value", "req.Name", req.Name, "expected", r.S3LabelSelectorValue, "current", labelSelectorValue)
-			return ctrl.Result{}, nil
-		}
-	}
-
 	// Check if the userResource instance is marked to be deleted, which is
 	// indicated by the deletion timestamp being set. The object will be deleted.
 	if userResource.GetDeletionTimestamp() != nil {
@@ -116,14 +104,18 @@ func (r *S3UserReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		}
 	}
 
-	// Check user existence on the S3 server
-
 	// Create S3Client
 	s3Client, err := r.getS3InstanceForObject(ctx, userResource)
 	if err != nil {
-		logger.Error(err, "an error occurred while getting s3Client")
-		return r.setS3UserStatusConditionAndUpdate(ctx, userResource, "OperatorFailed", metav1.ConditionFalse, "FailedS3Client",
-			"Getting s3Client in cache has failed", err)
+		if customErr, ok := err.(*s3ClientCache.S3ClientNotFound); ok {
+			logger.Error(err, "an error occurred while getting s3Client")
+			return r.setS3UserStatusConditionAndUpdate(ctx, userResource, "OperatorFailed", metav1.ConditionFalse, "FailedS3Client",
+				customErr.Reason, err)
+		} else {
+			logger.Error(err, "an error occurred while getting s3Client")
+			return r.setS3UserStatusConditionAndUpdate(ctx, userResource, "OperatorFailed", metav1.ConditionFalse, "FailedS3Client",
+				"Unknown error occured while getting s3Client", err)
+		}
 	}
 
 	found, err := s3Client.UserExist(userResource.Spec.AccessKey)
@@ -145,14 +137,20 @@ func (r *S3UserReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 
 func (r *S3UserReconciler) handleS3ExistingUser(ctx context.Context, userResource *s3v1alpha1.S3User) (reconcile.Result, error) {
 	logger := log.FromContext(ctx)
+
 	// Create S3Client
 	s3Client, err := r.getS3InstanceForObject(ctx, userResource)
 	if err != nil {
-		logger.Error(err, "an error occurred while getting s3Client")
-		return r.setS3UserStatusConditionAndUpdate(ctx, userResource, "OperatorFailed", metav1.ConditionFalse, "FailedS3Client",
-			"Getting s3Client in cache has failed", err)
+		if customErr, ok := err.(*s3ClientCache.S3ClientNotFound); ok {
+			logger.Error(err, "an error occurred while getting s3Client")
+			return r.setS3UserStatusConditionAndUpdate(ctx, userResource, "OperatorFailed", metav1.ConditionFalse, "FailedS3Client",
+				customErr.Reason, err)
+		} else {
+			logger.Error(err, "an error occurred while getting s3Client")
+			return r.setS3UserStatusConditionAndUpdate(ctx, userResource, "OperatorFailed", metav1.ConditionFalse, "FailedS3Client",
+				"Unknown error occured while getting s3Client", err)
+		}
 	}
-	// --- Begin Secret management section
 
 	userOwnedSecret, err := r.getUserSecret(ctx, userResource)
 	if err != nil {
@@ -270,13 +268,21 @@ func (r *S3UserReconciler) handleS3ExistingUser(ctx context.Context, userResourc
 
 func (r *S3UserReconciler) handleS3NewUser(ctx context.Context, userResource *s3v1alpha1.S3User) (reconcile.Result, error) {
 	logger := log.FromContext(ctx)
+
 	// Create S3Client
 	s3Client, err := r.getS3InstanceForObject(ctx, userResource)
 	if err != nil {
-		logger.Error(err, "an error occurred while getting s3Client")
-		return r.setS3UserStatusConditionAndUpdate(ctx, userResource, "OperatorFailed", metav1.ConditionFalse, "FailedS3Client",
-			"Getting s3Client in cache has failed", err)
+		if customErr, ok := err.(*s3ClientCache.S3ClientNotFound); ok {
+			logger.Error(err, "an error occurred while getting s3Client")
+			return r.setS3UserStatusConditionAndUpdate(ctx, userResource, "OperatorFailed", metav1.ConditionFalse, "FailedS3Client",
+				customErr.Reason, err)
+		} else {
+			logger.Error(err, "an error occurred while getting s3Client")
+			return r.setS3UserStatusConditionAndUpdate(ctx, userResource, "OperatorFailed", metav1.ConditionFalse, "FailedS3Client",
+				"Unknown error occured while getting s3Client", err)
+		}
 	}
+
 	// Generating a random secret key
 	secretKey, err := password.Generate(20, true, false, true)
 	if err != nil {
@@ -397,7 +403,6 @@ func (r *S3UserReconciler) addPoliciesToUser(ctx context.Context, userResource *
 	// Create S3Client
 	s3Client, err := r.getS3InstanceForObject(ctx, userResource)
 	if err != nil {
-		logger.Error(err, "an error occurred while getting s3Client")
 		return err
 	}
 	policies := userResource.Spec.Policies
@@ -613,19 +618,37 @@ func (r *S3UserReconciler) getS3InstanceForObject(ctx context.Context, userResou
 		logger.Info("Bucket resource doesn't refer to s3Instance, failback to default one")
 		s3Client, found := r.S3ClientCache.Get("default")
 		if !found {
-			err := &s3ClientCache.S3ClientCacheError{Reason: "No default client was found"}
-			logger.Error(err, "No default client was found")
+			err := &s3ClientCache.S3ClientNotFound{Reason: "Client not found"}
+			logger.Error(err, "Client \"default\" was not found")
 			return nil, err
+		} else {
+			if utils.IsAllowedNamespaces(userResource.Namespace, s3Client.GetConfig().AllowedNamespaces) {
+				return s3Client, nil
+			} else {
+				err := &s3ClientCache.S3ClientNotFound{Reason: "Client \"default\" was not found"}
+				return nil, err
+			}
 		}
-		return s3Client, nil
 	} else {
-		logger.Info(fmt.Sprintf("Bucket resource doesn't refer to s3Instance: %s, search instance in cache", userResource.Spec.S3InstanceRef))
-		s3Client, found := r.S3ClientCache.Get(userResource.Spec.S3InstanceRef)
+		logger.Info(fmt.Sprintf("User resource doesn't refer to s3Instance: %s, search instance in cache", userResource.Spec.S3InstanceRef))
+		clientName := ""
+		if strings.Contains(userResource.Spec.S3InstanceRef, "/") {
+			clientName = userResource.Spec.S3InstanceRef
+		} else {
+			clientName = userResource.Namespace + "/" + userResource.Spec.S3InstanceRef
+		}
+		s3Client, found := r.S3ClientCache.Get(clientName)
 		if !found {
-			err := &s3ClientCache.S3ClientCacheError{Reason: fmt.Sprintf("S3InstanceRef: %s,not found in cache", userResource.Spec.S3InstanceRef)}
-			logger.Error(err, "No client was found")
+			err := &s3ClientCache.S3ClientNotFound{Reason: fmt.Sprintf("S3InstanceRef: %s not found in cache", clientName)}
+			logger.Error(err, fmt.Sprintf("S3InstanceRef: %s not found in cache", clientName))
 			return nil, err
 		}
-		return s3Client, nil
+		logger.Info("Check if userRessource %s can use S3Instance %s", userResource.Name, clientName)
+		if utils.IsAllowedNamespaces(userResource.Namespace, s3Client.GetConfig().AllowedNamespaces) {
+			return s3Client, nil
+		} else {
+			err := &s3ClientCache.S3ClientNotFound{Reason: fmt.Sprintf("Client %s is not allowed in this namespace", userResource.Spec.S3InstanceRef)}
+			return nil, err
+		}
 	}
 }

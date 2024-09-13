@@ -38,6 +38,7 @@ type BucketSpec struct {
 
 	// s3InstanceRef where create the bucket
 	// +kubebuilder:validation:Optional
+    // +kubebuilder:validation:XValidation:rule="self == oldSelf",message="S3InstanceRef is immutable"
 	S3InstanceRef string `json:"s3InstanceRef,omitempty"`
 
 	// Quota to apply to the bucket

@@ -46,9 +46,13 @@ type S3InstanceSpec struct {
 	// +kubebuilder:validation:Optional
 	UseSSL bool `json:"useSSL,omitempty"`
 
-	// CaCertificatesBase64 associated to the S3InstanceUrl
+	// Secret containing key ca.crt with the certificate associated to the S3InstanceUrl
 	// +kubebuilder:validation:Optional
-	CaCertificatesBase64 []string `json:"caCertificateBase64,omitempty"`
+	CaCertSecretRef string `json:"caCertSecretRef,omitempty"`
+
+	// AllowedNamespaces to use this S3InstanceUrl if empty only the namespace of this instance url is allowed to use it
+	// +kubebuilder:validation:Optional
+	AllowedNamespaces []string `json:"allowedNamespaces,omitempty"`
 }
 
 // S3InstanceStatus defines the observed state of S3Instance

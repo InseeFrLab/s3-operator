@@ -48,6 +48,7 @@ type S3Config struct {
 	UseSsl               bool
 	CaCertificatesBase64 []string
 	CaBundlePath         string
+	AllowedNamespaces    []string
 }
 
 func GenerateS3Client(s3Provider string, S3Config *S3Config) (S3Client, error) {
@@ -60,7 +61,7 @@ func GenerateS3Client(s3Provider string, S3Config *S3Config) (S3Client, error) {
 	return nil, fmt.Errorf("s3 provider " + s3Provider + "not supported")
 }
 
-func GenerateDefaultS3Client(s3Provider string, s3UrlEndpoint string, accessKey string, secretKey string, region string, useSsl bool, caCertificatesBase64 []string, caBundlePath string) (S3Client, error) {
+func GenerateDefaultS3Client(s3Provider string, s3UrlEndpoint string, accessKey string, secretKey string, region string, useSsl bool, caCertificatesBase64 []string, caBundlePath string, allowedNamespaces []string) (S3Client, error) {
 	// For S3 access key and secret key, we first try to read the values from environment variables.
 	// Only if these are not defined do we use the respective flags.
 
@@ -82,7 +83,7 @@ func GenerateDefaultS3Client(s3Provider string, s3UrlEndpoint string, accessKey 
 		return newMockedS3Client(), nil
 	}
 	if s3Provider == "minio" {
-		S3Config := &S3Config{S3Provider: s3Provider, S3UrlEndpoint: s3UrlEndpoint, Region: region, AccessKey: accessKeyFromEnvIfAvailable, SecretKey: secretKeyFromEnvIfAvailable, UseSsl: useSsl, CaCertificatesBase64: caCertificatesBase64, CaBundlePath: caBundlePath}
+		S3Config := &S3Config{S3Provider: s3Provider, S3UrlEndpoint: s3UrlEndpoint, Region: region, AccessKey: accessKeyFromEnvIfAvailable, SecretKey: secretKeyFromEnvIfAvailable, UseSsl: useSsl, CaCertificatesBase64: caCertificatesBase64, CaBundlePath: caBundlePath, AllowedNamespaces: allowedNamespaces}
 		return newMinioS3Client(S3Config), nil
 	}
 	return nil, fmt.Errorf("s3 provider " + s3Provider + "not supported")

@@ -35,11 +35,16 @@ spec:
           spec:
             description: S3InstanceSpec defines the desired state of S3Instance
             properties:
-              caCertificateBase64:
-                description: CaCertificatesBase64 associated to the S3InstanceUrl
+              allowedNamespaces:
+                description: AllowedNamespaces to use this S3InstanceUrl if empty
+                  only the namespace of this instance url is allowed to use it
                 items:
                   type: string
                 type: array
+              caCertSecretRef:
+                description: Secret containing key ca.crt with the certificate associated
+                  to the S3InstanceUrl
+                type: string
               region:
                 description: region associated to the S3Instance
                 type: string

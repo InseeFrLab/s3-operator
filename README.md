@@ -92,7 +92,7 @@ The parameters are summarized in the table below :
 | `path-deletion`                 | false            | -                    | no                      | Trigger path deletion on the S3 backend upon CR deletion. Limited to deleting the `.keep` files used by the operator.                          |
 | `s3User-deletion`               | false            | -                    | no                      | Trigger S3User deletion on the S3 backend upon CR deletion.                                                                                    |
 | `override-existing-secret`      | false            | -                    | no                      | Update secret linked to s3User if already exist, else noop                                                                                     |
-| `s3LabelSelector`               | ""               | -                    | no                      | Filter resource that this instance will manage. If Empty all resource in the cluster will be manage                                            |
+| `allowedNamespaces`             | ""               | -                    | no                      | namespace allowed to use default s3Instance                                                                                                    |
 ## Minimal rights needed to work
 
 The Operator need at least this rights:
@@ -170,6 +170,7 @@ spec:
   secretName: minio-credentials                 # Name of the secret containing 2 Keys S3_ACCESS_KEY and S3_SECRET_KEY
   region: us-east-1                             # Region of the Provider
   useSSL: true                                  # useSSL to query the Provider
+  allowedNamespaces: []                         # AllowedNamespaces to use this s3instance can get regexp if empty only the same namespace as s3instance is allowed
 ```
 
 ### Bucket example
@@ -306,6 +307,13 @@ spec:
 ```
 
 Each S3user is linked to a kubernetes secret which have the same name that the S3User. The secret contains 2 keys: `accessKey` and `secretKey`.
+
+### :info: How works s3InstanceRef
+
+S3InstanceRef can get the following values:
+- empty: In this case the s3instance use will be the default one configured at startup if the namespace is in the namespace allowed for this s3Instance
+- `s3InstanceName`: In this case the s3Instance use will be the s3Instance with the name `s3InstanceName` in the current namespace (if the current namespace is allowed)
+- `namespace/s3InstanceName`: In this case the s3Instance use will be the s3Instance with the name `s3InstanceName` in the namespace `namespace` (if the current namespace is allowed to use this s3Instance)
 
 ## Operator SDK generated guidelines
 

@@ -79,19 +79,6 @@ func (r *S3InstanceReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		return ctrl.Result{}, err
 	}
 
-	// check if this object must be manage by this instance
-	if r.S3LabelSelectorValue != "" {
-		labelSelectorValue, found := s3InstanceResource.Labels[utils.S3OperatorS3InstanceLabelSelectorKey]
-		if !found {
-			logger.Info("This s3Instance ressouce will not be manage by this instance because this instance require that s3Instance get labelSelector and label selector not found", "req.Name", req.Name, "Bucket Labels", s3InstanceResource.Labels, "S3OperatorBucketLabelSelectorKey", utils.S3OperatorBucketLabelSelectorKey)
-			return ctrl.Result{}, nil
-		}
-		if labelSelectorValue != r.S3LabelSelectorValue {
-			logger.Info("This s3Instance ressouce will not be manage by this instance because this instance require that s3Instance get specific a specific labelSelector value", "req.Name", req.Name, "expected", r.S3LabelSelectorValue, "current", labelSelectorValue)
-			return ctrl.Result{}, nil
-		}
-	}
-
 	// Check if the s3InstanceResource instance is marked to be deleted, which is
 	// indicated by the deletion timestamp being set. The object will be deleted.
 	if s3InstanceResource.GetDeletionTimestamp() != nil {
@@ -113,7 +100,7 @@ func (r *S3InstanceReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	}
 
 	// Check s3Instance existence
-	_, found := r.S3ClientCache.Get(s3InstanceResource.Name)
+	_, found := r.S3ClientCache.Get(s3InstanceResource.Namespace + "/" + s3InstanceResource.Name)
 	// If the s3Instance does not exist, it is created based on the CR
 	if !found {
 		logger.Info("this S3Instance doesn't exist and will be created")
@@ -127,37 +114,51 @@ func (r *S3InstanceReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 func (r *S3InstanceReconciler) handleS3InstanceUpdate(ctx context.Context, s3InstanceResource *s3v1alpha1.S3Instance) (reconcile.Result, error) {
 	logger := log.FromContext(ctx)
 
-	s3Client, found := r.S3ClientCache.Get(s3InstanceResource.Name)
+	s3ClientName := s3InstanceResource.Namespace + "/" + s3InstanceResource.Name
+	s3Client, found := r.S3ClientCache.Get(s3ClientName)
 	if !found {
-		err := &s3ClientCache.S3ClientCacheError{Reason: fmt.Sprintf("S3InstanceRef: %s,not found in cache", s3InstanceResource.Name)}
+		err := &s3ClientCache.S3ClientCacheError{Reason: fmt.Sprintf("S3InstanceRef: %s,not found in cache", s3ClientName)}
 		logger.Error(err, "No client was found")
 	}
 	s3Config := s3Client.GetConfig()
 
 	// Get S3_ACCESS_KEY and S3_SECRET_KEY related to this s3Instance
 
-	s3InstanceSecretSecretExpected, err := r.getS3InstanceSecret(ctx, s3InstanceResource)
+	s3InstanceSecretSecretExpected, err := r.getS3InstanceAccessSecret(ctx, s3InstanceResource)
 	if err != nil {
 		logger.Error(err, "Could not get s3InstanceSecret in namespace", "s3InstanceSecretRefName", s3InstanceResource.Spec.SecretName)
 		return r.setS3InstanceStatusConditionAndUpdate(ctx, s3InstanceResource, "OperatorFailed", metav1.ConditionFalse, "S3InstanceUpdateFailed",
-			fmt.Sprintf("Updating secret of S3Instance %s has failed", s3InstanceResource.Name), err)
+			fmt.Sprintf("Updating secret of S3Instance %s has failed", s3ClientName), err)
+	}
+
+	s3InstanceCaCertSecretExpected, err := r.getS3InstanceCaCertSecret(ctx, s3InstanceResource)
+	if err != nil {
+		logger.Error(err, "Could not get s3InstanceSecret in namespace", "s3InstanceSecretRefName", s3InstanceResource.Spec.SecretName)
+		return r.setS3InstanceStatusConditionAndUpdate(ctx, s3InstanceResource, "OperatorFailed", metav1.ConditionFalse, "S3InstanceCreationFailed",
+			fmt.Sprintf("Getting secret of S3Instance %s has failed", s3ClientName), err)
+
+	}
+
+	allowedNamepaces := []string{s3InstanceResource.Namespace}
+	if s3InstanceResource.Spec.AllowedNamespaces != nil {
+		allowedNamepaces = s3InstanceResource.Spec.AllowedNamespaces
 	}
 
 	// if s3Provider have change recreate totaly One Differ instance will be deleted and recreated
-	if s3Config.S3Provider != s3InstanceResource.Spec.S3Provider || s3Config.S3UrlEndpoint != s3InstanceResource.Spec.UrlEndpoint || s3Config.UseSsl != s3InstanceResource.Spec.UseSSL || s3Config.Region != s3InstanceResource.Spec.Region || !reflect.DeepEqual(s3Config.CaCertificatesBase64, s3InstanceResource.Spec.CaCertificatesBase64) || s3Config.AccessKey != string(s3InstanceSecretSecretExpected.Data["S3_ACCESS_KEY"]) || s3Config.SecretKey != string(s3InstanceSecretSecretExpected.Data["S3_SECRET_KEY"]) {
+	if s3Config.S3Provider != s3InstanceResource.Spec.S3Provider || s3Config.S3UrlEndpoint != s3InstanceResource.Spec.UrlEndpoint || s3Config.UseSsl != s3InstanceResource.Spec.UseSSL || s3Config.Region != s3InstanceResource.Spec.Region || !reflect.DeepEqual(s3Config.AllowedNamespaces, allowedNamepaces) || !reflect.DeepEqual(s3Config.CaCertificatesBase64, []string{string(s3InstanceCaCertSecretExpected.Data["ca.crt"])}) || s3Config.AccessKey != string(s3InstanceSecretSecretExpected.Data["S3_ACCESS_KEY"]) || s3Config.SecretKey != string(s3InstanceSecretSecretExpected.Data["S3_SECRET_KEY"]) {
 		logger.Info("Instance in cache not equal to expected , cache will be prune and instance recreate", "s3InstanceSecretRefName", s3InstanceResource.Spec.SecretName)
-		r.S3ClientCache.Remove(s3InstanceResource.Name)
+		r.S3ClientCache.Remove(s3ClientName)
 		return r.handleS3InstanceCreation(ctx, s3InstanceResource)
 	}
 
 	return r.setS3InstanceStatusConditionAndUpdate(ctx, s3InstanceResource, "OperatorSucceeded", metav1.ConditionTrue, "S3InstanceUpdated",
-		fmt.Sprintf("The S3Instance %s was updated was reconcile successfully", s3InstanceResource.Name), nil)
+		fmt.Sprintf("The S3Instance %s was updated was reconcile successfully", s3ClientName), nil)
 }
 
 func (r *S3InstanceReconciler) handleS3InstanceCreation(ctx context.Context, s3InstanceResource *s3v1alpha1.S3Instance) (reconcile.Result, error) {
 	logger := log.FromContext(ctx)
 
-	s3InstanceSecretSecret, err := r.getS3InstanceSecret(ctx, s3InstanceResource)
+	s3InstanceSecretSecret, err := r.getS3InstanceAccessSecret(ctx, s3InstanceResource)
 	if err != nil {
 		logger.Error(err, "Could not get s3InstanceSecret in namespace", "s3InstanceSecretRefName", s3InstanceResource.Spec.SecretName)
 		return r.setS3InstanceStatusConditionAndUpdate(ctx, s3InstanceResource, "OperatorFailed", metav1.ConditionFalse, "S3InstanceCreationFailed",
@@ -165,15 +166,27 @@ func (r *S3InstanceReconciler) handleS3InstanceCreation(ctx context.Context, s3I
 
 	}
 
-	s3Config := &s3Factory.S3Config{S3Provider: s3InstanceResource.Spec.S3Provider, AccessKey: string(s3InstanceSecretSecret.Data["S3_ACCESS_KEY"]), SecretKey: string(s3InstanceSecretSecret.Data["S3_SECRET_KEY"]), S3UrlEndpoint: s3InstanceResource.Spec.UrlEndpoint, Region: s3InstanceResource.Spec.Region, UseSsl: s3InstanceResource.Spec.UseSSL, CaCertificatesBase64: s3InstanceResource.Spec.CaCertificatesBase64}
+	s3InstanceCaCertSecret, err := r.getS3InstanceCaCertSecret(ctx, s3InstanceResource)
+	if err != nil {
+		logger.Error(err, "Could not get S3InstanceCaCertSecret in namespace", "S3InstanceCaCertSecret", s3InstanceResource.Spec.CaCertSecretRef)
+		return r.setS3InstanceStatusConditionAndUpdate(ctx, s3InstanceResource, "OperatorFailed", metav1.ConditionFalse, "S3InstanceCreationFailed",
+			fmt.Sprintf("Getting secret S3InstanceCaCertSecret %s has failed", s3InstanceResource.Name), err)
+	}
 
+	allowedNamepaces := []string{s3InstanceResource.Namespace}
+	if s3InstanceResource.Spec.AllowedNamespaces != nil {
+		allowedNamepaces = s3InstanceResource.Spec.AllowedNamespaces
+	}
+
+	s3Config := &s3Factory.S3Config{S3Provider: s3InstanceResource.Spec.S3Provider, AccessKey: string(s3InstanceSecretSecret.Data["S3_ACCESS_KEY"]), SecretKey: string(s3InstanceSecretSecret.Data["S3_SECRET_KEY"]), S3UrlEndpoint: s3InstanceResource.Spec.UrlEndpoint, Region: s3InstanceResource.Spec.Region, UseSsl: s3InstanceResource.Spec.UseSSL, AllowedNamespaces: allowedNamepaces, CaCertificatesBase64: []string{string(s3InstanceCaCertSecret.Data["ca.crt"])}}
+	s3ClientName := s3InstanceResource.Namespace + "/" + s3InstanceResource.Name
 	s3Client, err := s3Factory.GenerateS3Client(s3Config.S3Provider, s3Config)
 	if err != nil {
 		return r.setS3InstanceStatusConditionAndUpdate(ctx, s3InstanceResource, "OperatorFailed", metav1.ConditionFalse, "S3InstanceCreationFailed",
 			fmt.Sprintf("Error while creating s3Instance %s", s3InstanceResource.Name), err)
 	}
 
-	r.S3ClientCache.Set(s3InstanceResource.Name, s3Client)
+	r.S3ClientCache.Set(s3ClientName, s3Client)
 
 	return r.setS3InstanceStatusConditionAndUpdate(ctx, s3InstanceResource, "OperatorSucceeded", metav1.ConditionTrue, "S3InstanceCreated",
 		fmt.Sprintf("The S3Instance %s was created successfully", s3InstanceResource.Name), nil)
@@ -212,32 +225,12 @@ func (r *S3InstanceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	// filterLogger := ctrl.Log.WithName("filterEvt")
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&s3v1alpha1.S3Instance{}).
-		// The "secret owning" implies the reconcile loop will be called whenever a Secret owned
-		// by a S3Instance is created/updated/deleted. In other words, even when creating a single S3Instance,
-		// there is going to be several iterations.
-		Owns(&corev1.Secret{}).
 		// See : https://sdk.operatorframework.io/docs/building-operators/golang/references/event-filtering/
 		WithEventFilter(predicate.Funcs{
-
 			// Ignore updates to CR status in which case metadata.Generation does not change,
 			// unless it is a change to the underlying Secret
 			UpdateFunc: func(e event.UpdateEvent) bool {
-
-				// To check if the update event is tied to a change on secret,
-				// we try to cast e.ObjectNew to a secret (only if it's not a S3Instance, which
-				// should prevent any TypeAssertionError based panic).
-				secretUpdate := false
-				newUser, _ := e.ObjectNew.(*s3v1alpha1.S3Instance)
-				if newUser == nil {
-					secretUpdate = (e.ObjectNew.(*corev1.Secret) != nil)
-				}
-
-				return e.ObjectOld.GetGeneration() != e.ObjectNew.GetGeneration() || secretUpdate
-			},
-			// Ignore create events caused by the underlying secret's creation
-			CreateFunc: func(e event.CreateEvent) bool {
-				s3Instance, _ := e.Object.(*s3v1alpha1.S3Instance)
-				return s3Instance != nil
+				return e.ObjectOld.GetGeneration() != e.ObjectNew.GetGeneration()
 			},
 			DeleteFunc: func(e event.DeleteEvent) bool {
 				// Evaluates to false if the object has been confirmed deleted.
@@ -274,22 +267,24 @@ func (r *S3InstanceReconciler) setS3InstanceStatusConditionAndUpdate(ctx context
 func (r *S3InstanceReconciler) finalizeS3Instance(ctx context.Context, s3InstanceResource *s3v1alpha1.S3Instance) error {
 	logger := log.FromContext(ctx)
 	// Create S3Client
-	logger.Info(fmt.Sprintf("Search S3Instance %s to delete in cache , search instance in cache", s3InstanceResource.Name))
-	_, found := r.S3ClientCache.Get(s3InstanceResource.Name)
+	s3ClientName := s3InstanceResource.Namespace + "/" + s3InstanceResource.Name
+	logger.Info(fmt.Sprintf("Search S3Instance %s to delete in cache , search instance in cache", s3ClientName))
+	_, found := r.S3ClientCache.Get(s3ClientName)
 	if !found {
-		err := &s3ClientCache.S3ClientCacheError{Reason: fmt.Sprintf("S3InstanceRef: %s,not found in cache cannot finalize", s3InstanceResource.Name)}
+		err := &s3ClientCache.S3ClientCacheError{Reason: fmt.Sprintf("S3InstanceRef: %s,not found in cache cannot finalize", s3ClientName)}
 		logger.Error(err, "No client was found")
 		return err
 	}
-	r.S3ClientCache.Remove(s3InstanceResource.Name)
+	r.S3ClientCache.Remove(s3ClientName)
 	return nil
 }
 
-func (r *S3InstanceReconciler) getS3InstanceSecret(ctx context.Context, s3InstanceResource *s3v1alpha1.S3Instance) (corev1.Secret, error) {
+func (r *S3InstanceReconciler) getS3InstanceAccessSecret(ctx context.Context, s3InstanceResource *s3v1alpha1.S3Instance) (corev1.Secret, error) {
 	logger := log.FromContext(ctx)
 
 	secretsList := &corev1.SecretList{}
 	s3InstanceSecret := corev1.Secret{}
+	secretFound := false
 
 	err := r.List(ctx, secretsList, client.InNamespace(s3InstanceResource.Namespace))
 	if err != nil {
@@ -299,7 +294,7 @@ func (r *S3InstanceReconciler) getS3InstanceSecret(ctx context.Context, s3Instan
 
 	if len(secretsList.Items) == 0 {
 		logger.Info("The s3instance's namespace doesn't appear to contain any secret")
-		return s3InstanceSecret, nil
+		return s3InstanceSecret, fmt.Errorf("no secret found in namespace")
 	}
 	// In all the secrets inside the s3instance's namespace, one should have a name equal to
 	// the S3InstanceSecretRefName field.
@@ -309,9 +304,55 @@ func (r *S3InstanceReconciler) getS3InstanceSecret(ctx context.Context, s3Instan
 	for _, secret := range secretsList.Items {
 		if secret.Name == s3InstanceSecretName {
 			s3InstanceSecret = secret
+			secretFound = true
+			break
+		}
+	}
+	if secretFound {
+		return s3InstanceSecret, nil
+	} else {
+		return s3InstanceSecret, fmt.Errorf("secret not found in namespace")
+	}
+}
+
+func (r *S3InstanceReconciler) getS3InstanceCaCertSecret(ctx context.Context, s3InstanceResource *s3v1alpha1.S3Instance) (corev1.Secret, error) {
+	logger := log.FromContext(ctx)
+
+	secretsList := &corev1.SecretList{}
+	s3InstanceCaCertSecret := corev1.Secret{}
+	secretFound := false
+
+	if s3InstanceResource.Spec.CaCertSecretRef == "" {
+		return s3InstanceCaCertSecret, nil
+	}
+
+	err := r.List(ctx, secretsList, client.InNamespace(s3InstanceResource.Namespace))
+	if err != nil {
+		logger.Error(err, "An error occurred while listing the secrets in s3instance's namespace")
+		return s3InstanceCaCertSecret, fmt.Errorf("secretListingFailed")
+	}
+
+	if len(secretsList.Items) == 0 {
+		logger.Info("The s3instance's namespace doesn't appear to contain any secret")
+		return s3InstanceCaCertSecret, nil
+	}
+	// In all the secrets inside the s3instance's namespace, one should have a name equal to
+	// the S3InstanceSecretRefName field.
+	s3InstanceCaCertSecretRef := s3InstanceResource.Spec.CaCertSecretRef
+
+	// cmp.Or takes the first non "zero" value, see https://pkg.go.dev/cmp#Or
+	for _, secret := range secretsList.Items {
+		if secret.Name == s3InstanceCaCertSecretRef {
+			s3InstanceCaCertSecret = secret
+			secretFound = true
 			break
 		}
 	}
 
-	return s3InstanceSecret, nil
+	if secretFound {
+		return s3InstanceCaCertSecret, nil
+	} else {
+		return s3InstanceCaCertSecret, fmt.Errorf("secret not found in namespace")
+	}
+
 }

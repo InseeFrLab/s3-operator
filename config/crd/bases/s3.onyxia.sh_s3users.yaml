@@ -46,6 +46,9 @@ spec:
               s3InstanceRef:
                 description: s3InstanceRef where create the user
                 type: string
+                x-kubernetes-validations:
+                - message: S3InstanceRef is immutable
+                  rule: self == oldSelf
               secretName:
                 description: SecretName associated to the S3User
                 type: string

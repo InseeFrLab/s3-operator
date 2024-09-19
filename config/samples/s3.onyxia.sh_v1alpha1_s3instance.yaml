@@ -1,0 +1,16 @@
+apiVersion: s3.onyxia.sh/v1alpha1
+kind: S3Instance
+metadata:
+  labels:
+    app.kubernetes.io/name: bucket
+    app.kubernetes.io/instance: bucket-sample
+    app.kubernetes.io/part-of: s3-operator
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/created-by: s3-operator
+  name: s3-default-instance
+spec:
+  s3Provider: minio
+  urlEndpoint: minio.example.com
+  secretName: minio-credentials
+  region: us-east-1
+  useSSL: true

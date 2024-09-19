@@ -20,6 +20,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -27,7 +28,8 @@ import (
 
 	s3v1alpha1 "github.com/InseeFrLab/s3-operator/api/v1alpha1"
 	controllers "github.com/InseeFrLab/s3-operator/controllers"
-	"github.com/InseeFrLab/s3-operator/controllers/s3/factory"
+	s3ClientCache "github.com/InseeFrLab/s3-operator/internal/s3"
+	"github.com/InseeFrLab/s3-operator/internal/s3/factory"
 	"go.uber.org/zap/zapcore"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -82,6 +84,8 @@ func main() {
 	var policyDeletion bool
 	var pathDeletion bool
 	var s3userDeletion bool
+	var s3LabelSelector string
+	var allowedNamespaces string
 
 	//K8S related variable
 	var overrideExistingSecret bool
@@ -93,19 +97,20 @@ func main() {
 			"Enabling this will ensure there is only one active controller manager.")
 
 	// S3 related flags
-	flag.StringVar(&s3Provider, "s3-provider", "minio", "S3 provider (possible values : minio, mockedS3Provider)")
-	flag.StringVar(&s3EndpointUrl, "s3-endpoint-url", "localhost:9000", "Hostname (or hostname:port) of the S3 server")
-	flag.StringVar(&accessKey, "s3-access-key", "ROOTNAME", "The accessKey of the acount")
-	flag.StringVar(&secretKey, "s3-secret-key", "CHANGEME123", "The secretKey of the acount")
+	flag.StringVar(&s3Provider, "s3-provider", "", "S3 provider (possible values : minio, mockedS3Provider)")
+	flag.StringVar(&s3EndpointUrl, "s3-endpoint-url", "", "Hostname (or hostname:port) of the S3 server")
+	flag.StringVar(&accessKey, "s3-access-key", "", "The accessKey of the acount")
+	flag.StringVar(&secretKey, "s3-secret-key", "", "The secretKey of the acount")
 	flag.Var(&caCertificatesBase64, "s3-ca-certificate-base64", "(Optional) Base64 encoded, PEM format certificate file for a certificate authority, for https requests to S3")
 	flag.StringVar(&caCertificatesBundlePath, "s3-ca-certificate-bundle-path", "", "(Optional) Path to a CA certificate file, for https requests to S3")
-	flag.StringVar(&region, "region", "us-east-1", "The region to configure for the S3 client")
+	flag.StringVar(&region, "region", "", "The region to configure for the S3 client")
 	flag.BoolVar(&useSsl, "useSsl", true, "Use of SSL/TLS to connect to the S3 endpoint")
 	flag.BoolVar(&bucketDeletion, "bucket-deletion", false, "Trigger bucket deletion on the S3 backend upon CR deletion. Will fail if bucket is not empty.")
 	flag.BoolVar(&policyDeletion, "policy-deletion", false, "Trigger policy deletion on the S3 backend upon CR deletion")
 	flag.BoolVar(&pathDeletion, "path-deletion", false, "Trigger path deletion on the S3 backend upon CR deletion. Limited to deleting the `.keep` files used by the operator.")
 	flag.BoolVar(&s3userDeletion, "s3user-deletion", false, "Trigger S3 deletion on the S3 backend upon CR deletion")
 	flag.BoolVar(&overrideExistingSecret, "override-existing-secret", false, "Override existing secret associated to user in case of the secret already exist")
+	flag.StringVar(&allowedNamespaces, "allowed-namespaces", "", "namespace that are allowed to use default s3instance")
 
 	opts := zap.Options{
 		Development: true,
@@ -150,51 +155,45 @@ func main() {
 		os.Exit(1)
 	}
 
-	// For S3 access key and secret key, we first try to read the values from environment variables.
-	// Only if these are not defined do we use the respective flags.
-	var accessKeyFromEnvIfAvailable = os.Getenv("S3_ACCESS_KEY")
-	if accessKeyFromEnvIfAvailable == "" {
-		accessKeyFromEnvIfAvailable = accessKey
-	}
-	var secretKeyFromEnvIfAvailable = os.Getenv("S3_SECRET_KEY")
-	if secretKeyFromEnvIfAvailable == "" {
-		secretKeyFromEnvIfAvailable = secretKey
-	}
+	s3ClientCache := s3ClientCache.New()
+	// Creation of the default S3 client
+	s3DefaultClient, err := factory.GenerateDefaultS3Client(s3Provider, s3EndpointUrl, accessKey, secretKey, region, useSsl, caCertificatesBase64, caCertificatesBundlePath, strings.Split(allowedNamespaces, ","))
 
-	// Creation of the S3 client
-	s3Config := &factory.S3Config{S3Provider: s3Provider, S3UrlEndpoint: s3EndpointUrl, Region: region, AccessKey: accessKeyFromEnvIfAvailable, SecretKey: secretKeyFromEnvIfAvailable, UseSsl: useSsl, CaCertificatesBase64: caCertificatesBase64, CaBundlePath: caCertificatesBundlePath}
-	s3Client, err := factory.GetS3Client(s3Config.S3Provider, s3Config)
 	if err != nil {
-		// setupLog.Log.Error(err, err.Error())
-		// fmt.Print(s3Client)
-		// fmt.Print(err)
-		setupLog.Error(err, "an error occurred while creating the S3 client", "s3Client", s3Client)
+		setupLog.Error(err, "an error occurred while creating the S3 client", "s3Client", s3DefaultClient)
 		os.Exit(1)
 	}
 
+	if s3DefaultClient != nil {
+		s3ClientCache.Set("default", s3DefaultClient)
+	}
+
 	if err = (&controllers.BucketReconciler{
-		Client:         mgr.GetClient(),
-		Scheme:         mgr.GetScheme(),
-		S3Client:       s3Client,
-		BucketDeletion: bucketDeletion,
+		Client:               mgr.GetClient(),
+		Scheme:               mgr.GetScheme(),
+		S3ClientCache:        s3ClientCache,
+		BucketDeletion:       bucketDeletion,
+		S3LabelSelectorValue: s3LabelSelector,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Bucket")
 		os.Exit(1)
 	}
 	if err = (&controllers.PathReconciler{
-		Client:       mgr.GetClient(),
-		Scheme:       mgr.GetScheme(),
-		S3Client:     s3Client,
-		PathDeletion: pathDeletion,
+		Client:               mgr.GetClient(),
+		Scheme:               mgr.GetScheme(),
+		S3ClientCache:        s3ClientCache,
+		PathDeletion:         pathDeletion,
+		S3LabelSelectorValue: s3LabelSelector,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Path")
 		os.Exit(1)
 	}
 	if err = (&controllers.PolicyReconciler{
-		Client:         mgr.GetClient(),
-		Scheme:         mgr.GetScheme(),
-		S3Client:       s3Client,
-		PolicyDeletion: policyDeletion,
+		Client:               mgr.GetClient(),
+		Scheme:               mgr.GetScheme(),
+		S3ClientCache:        s3ClientCache,
+		PolicyDeletion:       policyDeletion,
+		S3LabelSelectorValue: s3LabelSelector,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Policy")
 		os.Exit(1)
@@ -202,11 +201,21 @@ func main() {
 	if err = (&controllers.S3UserReconciler{
 		Client:                 mgr.GetClient(),
 		Scheme:                 mgr.GetScheme(),
-		S3Client:               s3Client,
+		S3ClientCache:          s3ClientCache,
 		S3UserDeletion:         s3userDeletion,
 		OverrideExistingSecret: overrideExistingSecret,
+		S3LabelSelectorValue:   s3LabelSelector,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "S3User")
+		os.Exit(1)
+	}
+	if err = (&controllers.S3InstanceReconciler{
+		Client:               mgr.GetClient(),
+		Scheme:               mgr.GetScheme(),
+		S3ClientCache:        s3ClientCache,
+		S3LabelSelectorValue: s3LabelSelector,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "S3Instance")
 		os.Exit(1)
 	}
 	//+kubebuilder:scaffold:builder

@@ -19,8 +19,10 @@ package controllers
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
+	s3ClientCache "github.com/InseeFrLab/s3-operator/internal/s3"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -34,16 +36,17 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	s3v1alpha1 "github.com/InseeFrLab/s3-operator/api/v1alpha1"
-	"github.com/InseeFrLab/s3-operator/controllers/s3/factory"
-	"github.com/InseeFrLab/s3-operator/controllers/utils"
+	"github.com/InseeFrLab/s3-operator/internal/s3/factory"
+	"github.com/InseeFrLab/s3-operator/internal/utils"
 )
 
 // PathReconciler reconciles a Path object
 type PathReconciler struct {
 	client.Client
-	Scheme       *runtime.Scheme
-	S3Client     factory.S3Client
-	PathDeletion bool
+	Scheme               *runtime.Scheme
+	S3ClientCache        *s3ClientCache.S3ClientCache
+	PathDeletion         bool
+	S3LabelSelectorValue string
 }
 
 //+kubebuilder:rbac:groups=s3.onyxia.sh,resources=paths,verbs=get;list;watch;create;update;patch;delete
@@ -80,7 +83,7 @@ func (r *PathReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 			// Run finalization logic for pathFinalizer. If the
 			// finalization logic fails, don't remove the finalizer so
 			// that we can retry during the next reconciliation.
-			if err := r.finalizePath(pathResource); err != nil {
+			if err := r.finalizePath(ctx, pathResource); err != nil {
 				// return ctrl.Result{}, err
 				logger.Error(err, "an error occurred when attempting to finalize the path", "path", pathResource.Name)
 				// return ctrl.Result{}, err
@@ -114,10 +117,24 @@ func (r *PathReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 		}
 	}
 
+	// Create S3Client
+	s3Client, err := r.getS3InstanceForObject(ctx, pathResource)
+	if err != nil {
+		if customErr, ok := err.(*s3ClientCache.S3ClientNotFound); ok {
+			logger.Error(err, "an error occurred while getting s3Client")
+			return r.SetPathStatusConditionAndUpdate(ctx, pathResource, "OperatorFailed", metav1.ConditionFalse, "FailedS3Client",
+				customErr.Reason, err)
+		} else {
+			logger.Error(err, "an error occurred while getting s3Client")
+			return r.SetPathStatusConditionAndUpdate(ctx, pathResource, "OperatorFailed", metav1.ConditionFalse, "FailedS3Client",
+				"Unknown error occured while getting bucket", err)
+		}
+	}
+
 	// Path lifecycle management (other than deletion) starts here
 
 	// Check bucket existence on the S3 server
-	bucketFound, err := r.S3Client.BucketExists(pathResource.Spec.BucketName)
+	bucketFound, err := s3Client.BucketExists(pathResource.Spec.BucketName)
 	if err != nil {
 		logger.Error(err, "an error occurred while checking the existence of a bucket", "bucket", pathResource.Spec.BucketName)
 		return r.SetPathStatusConditionAndUpdate(ctx, pathResource, "OperatorFailed", metav1.ConditionFalse, "BucketExistenceCheckFailed",
@@ -141,7 +158,7 @@ func (r *PathReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	// But then again, some buckets will likely be filled with many objects outside the
 	// scope of the CR, so getting all of them might be even more costly.
 	for _, pathInCr := range pathResource.Spec.Paths {
-		pathExists, err := r.S3Client.PathExists(pathResource.Spec.BucketName, pathInCr)
+		pathExists, err := s3Client.PathExists(pathResource.Spec.BucketName, pathInCr)
 		if err != nil {
 			logger.Error(err, "an error occurred while checking a path's existence on a bucket", "bucket", pathResource.Spec.BucketName, "path", pathInCr)
 			return r.SetPathStatusConditionAndUpdate(ctx, pathResource, "OperatorFailed", metav1.ConditionFalse, "PathCheckFailed",
@@ -149,7 +166,7 @@ func (r *PathReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 		}
 
 		if !pathExists {
-			err = r.S3Client.CreatePath(pathResource.Spec.BucketName, pathInCr)
+			err = s3Client.CreatePath(pathResource.Spec.BucketName, pathInCr)
 			if err != nil {
 				logger.Error(err, "an error occurred while creating a path on a bucket", "bucket", pathResource.Spec.BucketName, "path", pathInCr)
 				return r.SetPathStatusConditionAndUpdate(ctx, pathResource, "OperatorFailed", metav1.ConditionFalse, "PathCreationFailed",
@@ -183,19 +200,25 @@ func (r *PathReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
-func (r *PathReconciler) finalizePath(pathResource *s3v1alpha1.Path) error {
-	logger := log.Log.WithValues("controller", "path")
+func (r *PathReconciler) finalizePath(ctx context.Context, pathResource *s3v1alpha1.Path) error {
+	logger := log.FromContext(ctx)
+	s3Client, err := r.getS3InstanceForObject(ctx, pathResource)
+	if err != nil {
+		logger.Error(err, "an error occurred while getting s3Client")
+		return err
+	}
+
 	if r.PathDeletion {
 		var failedPaths []string = make([]string, 0)
 		for _, path := range pathResource.Spec.Paths {
 
-			pathExists, err := r.S3Client.PathExists(pathResource.Spec.BucketName, path)
+			pathExists, err := s3Client.PathExists(pathResource.Spec.BucketName, path)
 			if err != nil {
 				logger.Error(err, "finalize : an error occurred while checking a path's existence on a bucket", "bucket", pathResource.Spec.BucketName, "path", path)
 			}
 
 			if pathExists {
-				err = r.S3Client.DeletePath(pathResource.Spec.BucketName, path)
+				err = s3Client.DeletePath(pathResource.Spec.BucketName, path)
 				if err != nil {
 					failedPaths = append(failedPaths, path)
 				}
@@ -230,4 +253,45 @@ func (r *PathReconciler) SetPathStatusConditionAndUpdate(ctx context.Context, pa
 		return ctrl.Result{}, utilerrors.NewAggregate([]error{err, srcError})
 	}
 	return ctrl.Result{}, srcError
+}
+
+func (r *PathReconciler) getS3InstanceForObject(ctx context.Context, pathResource *s3v1alpha1.Path) (factory.S3Client, error) {
+	logger := log.FromContext(ctx)
+	if pathResource.Spec.S3InstanceRef == "" {
+		logger.Info("Path resource doesn't refer to s3Instance, failback to default one")
+		s3Client, found := r.S3ClientCache.Get("default")
+		if !found {
+			err := &s3ClientCache.S3ClientNotFound{Reason: "Client not found"}
+			logger.Error(err, "Client \"default\" was not found")
+			return nil, err
+		} else {
+			if utils.IsAllowedNamespaces(pathResource.Namespace, s3Client.GetConfig().AllowedNamespaces) {
+				return s3Client, nil
+			} else {
+				err := &s3ClientCache.S3ClientNotFound{Reason: "Client \"default\" was not found"}
+				return nil, err
+			}
+		}
+	} else {
+		logger.Info(fmt.Sprintf("Path resource doesn't refer to s3Instance: %s, search instance in cache", pathResource.Spec.S3InstanceRef))
+		clientName := ""
+		if strings.Contains(pathResource.Spec.S3InstanceRef, "/") {
+			clientName = pathResource.Spec.S3InstanceRef
+		} else {
+			clientName = pathResource.Namespace + "/" + pathResource.Spec.S3InstanceRef
+		}
+		s3Client, found := r.S3ClientCache.Get(clientName)
+		if !found {
+			err := &s3ClientCache.S3ClientNotFound{Reason: fmt.Sprintf("S3InstanceRef: %s not found in cache", clientName)}
+			logger.Error(err, fmt.Sprintf("S3InstanceRef: %s not found in cache", clientName))
+			return nil, err
+		}
+		logger.Info(fmt.Sprintf("Check if PathRessource %s can use S3Instance %s", pathResource.Name, clientName))
+		if utils.IsAllowedNamespaces(pathResource.Namespace, s3Client.GetConfig().AllowedNamespaces) {
+			return s3Client, nil
+		} else {
+			err := &s3ClientCache.S3ClientNotFound{Reason: fmt.Sprintf("Client %s is not allowed in this namespace", pathResource.Spec.S3InstanceRef)}
+			return nil, err
+		}
+	}
 }

@@ -5,20 +5,20 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.11.1
   creationTimestamp: null
-  name: paths.s3.onyxia.sh
+  name: s3instances.s3.onyxia.sh
 spec:
   group: s3.onyxia.sh
   names:
-    kind: Path
-    listKind: PathList
-    plural: paths
-    singular: path
+    kind: S3Instance
+    listKind: S3InstanceList
+    plural: s3instances
+    singular: s3instance
   scope: Namespaced
   versions:
   - name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: Path is the Schema for the paths API
+        description: S3Instance is the Schema for the S3Instances API
         properties:
           apiVersion:
             description: 'APIVersion defines the versioned schema of this representation
@@ -33,27 +33,42 @@ spec:
           metadata:
             type: object
           spec:
-            description: PathSpec defines the desired state of Path
+            description: S3InstanceSpec defines the desired state of S3Instance
             properties:
-              bucketName:
-                description: Name of the bucket
-                type: string
-              paths:
-                description: Paths (folders) to create inside the bucket
+              allowedNamespaces:
+                description: AllowedNamespaces to use this S3InstanceUrl if empty
+                  only the namespace of this instance url is allowed to use it
                 items:
                   type: string
                 type: array
-              s3InstanceRef:
-                description: s3InstanceRef where create the Paths
+              caCertSecretRef:
+                description: Secret containing key ca.crt with the certificate associated
+                  to the S3InstanceUrl
                 type: string
-                x-kubernetes-validations:
-                - message: S3InstanceRef is immutable
-                  rule: self == oldSelf
+              region:
+                description: region associated to the S3Instance
+                type: string
+              s3Provider:
+                description: type of the S3Instance
+                type: string
+              secretName:
+                description: SecretName associated to the S3Instance containing accessKey
+                  and secretKey
+                type: string
+              urlEndpoint:
+                description: url of the S3Instance
+                type: string
+              useSSL:
+                description: useSSL when connecting to the S3Instance
+                type: boolean
             required:
-            - bucketName
+            - region
+            - s3Provider
+            - secretName
+            - urlEndpoint
             type: object
           status:
-            description: PathStatus defines the observed state of Path
+            description: S3InstanceStatus defines the observed state of S3Instance
             properties:
               conditions:
                 description: 'Status management using Conditions. See also : https://github.com/kubernetes/community/blob/master/contributors/devel/sig-architecture/api-conventions.md#typical-status-properties'

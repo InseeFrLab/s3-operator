@@ -21,6 +21,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/minio/madmin-go/v3"
@@ -37,16 +38,18 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	s3v1alpha1 "github.com/InseeFrLab/s3-operator/api/v1alpha1"
-	"github.com/InseeFrLab/s3-operator/controllers/s3/factory"
-	"github.com/InseeFrLab/s3-operator/controllers/utils"
+	s3ClientCache "github.com/InseeFrLab/s3-operator/internal/s3"
+	"github.com/InseeFrLab/s3-operator/internal/s3/factory"
+	"github.com/InseeFrLab/s3-operator/internal/utils"
 )
 
 // PolicyReconciler reconciles a Policy object
 type PolicyReconciler struct {
 	client.Client
-	Scheme         *runtime.Scheme
-	S3Client       factory.S3Client
-	PolicyDeletion bool
+	Scheme               *runtime.Scheme
+	S3ClientCache        *s3ClientCache.S3ClientCache
+	PolicyDeletion       bool
+	S3LabelSelectorValue string
 }
 
 //+kubebuilder:rbac:groups=s3.onyxia.sh,resources=policies,verbs=get;list;watch;create;update;patch;delete
@@ -83,7 +86,7 @@ func (r *PolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 			// Run finalization logic for policyFinalizer. If the
 			// finalization logic fails, don't remove the finalizer so
 			// that we can retry during the next reconciliation.
-			if err := r.finalizePolicy(policyResource); err != nil {
+			if err := r.finalizePolicy(ctx, policyResource); err != nil {
 				// return ctrl.Result{}, err
 				logger.Error(err, "an error occurred when attempting to finalize the policy", "policy", policyResource.Spec.Name)
 				// return ctrl.Result{}, err
@@ -119,8 +122,22 @@ func (r *PolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 
 	// Policy lifecycle management (other than deletion) starts here
 
+	// Create S3Client
+	s3Client, err := r.getS3InstanceForObject(ctx, policyResource)
+	if err != nil {
+		if customErr, ok := err.(*s3ClientCache.S3ClientNotFound); ok {
+			logger.Error(err, "an error occurred while getting s3Client")
+			return r.SetPolicyStatusConditionAndUpdate(ctx, policyResource, "OperatorFailed", metav1.ConditionFalse, "FailedS3Client",
+				customErr.Reason, err)
+		} else {
+			logger.Error(err, "an error occurred while getting s3Client")
+			return r.SetPolicyStatusConditionAndUpdate(ctx, policyResource, "OperatorFailed", metav1.ConditionFalse, "FailedS3Client",
+				"Unknown error occured while getting bucket", err)
+		}
+	}
+
 	// Check policy existence on the S3 server
-	effectivePolicy, err := r.S3Client.GetPolicyInfo(policyResource.Spec.Name)
+	effectivePolicy, err := s3Client.GetPolicyInfo(policyResource.Spec.Name)
 
 	// If the policy does not exist on S3...
 	if err != nil {
@@ -132,7 +149,7 @@ func (r *PolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	if effectivePolicy == nil {
 
 		// Policy creation using info from the CR
-		err = r.S3Client.CreateOrUpdatePolicy(policyResource.Spec.Name, policyResource.Spec.PolicyContent)
+		err = s3Client.CreateOrUpdatePolicy(policyResource.Spec.Name, policyResource.Spec.PolicyContent)
 		if err != nil {
 			logger.Error(err, "an error occurred while creating the policy", "policy", policyResource.Spec.Name)
 			return r.SetPolicyStatusConditionAndUpdate(ctx, policyResource, "OperatorFailed", metav1.ConditionFalse, "PolicyCreationFailed",
@@ -160,7 +177,7 @@ func (r *PolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	}
 
 	// If not we update the policy to match the CR
-	err = r.S3Client.CreateOrUpdatePolicy(policyResource.Spec.Name, policyResource.Spec.PolicyContent)
+	err = s3Client.CreateOrUpdatePolicy(policyResource.Spec.Name, policyResource.Spec.PolicyContent)
 	if err != nil {
 		logger.Error(err, "an error occurred while updating the policy", "policy", policyResource.Spec.Name)
 		return r.SetPolicyStatusConditionAndUpdate(ctx, policyResource, "OperatorFailed", metav1.ConditionFalse, "PolicyUpdateFailed",
@@ -210,9 +227,15 @@ func IsPolicyMatchingWithCustomResource(policyResource *s3v1alpha1.Policy, effec
 	return bytes.Equal(buffer.Bytes(), marshalled), nil
 }
 
-func (r *PolicyReconciler) finalizePolicy(policyResource *s3v1alpha1.Policy) error {
+func (r *PolicyReconciler) finalizePolicy(ctx context.Context, policyResource *s3v1alpha1.Policy) error {
+	logger := log.FromContext(ctx)
+	s3Client, err := r.getS3InstanceForObject(ctx, policyResource)
+	if err != nil {
+		logger.Error(err, "an error occurred while getting s3Client")
+		return err
+	}
 	if r.PolicyDeletion {
-		return r.S3Client.DeletePolicy(policyResource.Spec.Name)
+		return s3Client.DeletePolicy(policyResource.Spec.Name)
 	}
 	return nil
 }
@@ -238,4 +261,45 @@ func (r *PolicyReconciler) SetPolicyStatusConditionAndUpdate(ctx context.Context
 		return ctrl.Result{}, utilerrors.NewAggregate([]error{err, srcError})
 	}
 	return ctrl.Result{}, srcError
+}
+
+func (r *PolicyReconciler) getS3InstanceForObject(ctx context.Context, policyResource *s3v1alpha1.Policy) (factory.S3Client, error) {
+	logger := log.FromContext(ctx)
+	if policyResource.Spec.S3InstanceRef == "" {
+		logger.Info("Policy resource doesn't refer to s3Instance, failback to default one")
+		s3Client, found := r.S3ClientCache.Get("default")
+		if !found {
+			err := &s3ClientCache.S3ClientNotFound{Reason: "Client not found"}
+			logger.Error(err, "Client \"default\" was not found")
+			return nil, err
+		} else {
+			if utils.IsAllowedNamespaces(policyResource.Namespace, s3Client.GetConfig().AllowedNamespaces) {
+				return s3Client, nil
+			} else {
+				err := &s3ClientCache.S3ClientNotFound{Reason: "Client \"default\" was not found"}
+				return nil, err
+			}
+		}
+	} else {
+		logger.Info(fmt.Sprintf("Policy resource doesn't refer to s3Instance: %s, search instance in cache", policyResource.Spec.S3InstanceRef))
+		clientName := ""
+		if strings.Contains(policyResource.Spec.S3InstanceRef, "/") {
+			clientName = policyResource.Spec.S3InstanceRef
+		} else {
+			clientName = policyResource.Namespace + "/" + policyResource.Spec.S3InstanceRef
+		}
+		s3Client, found := r.S3ClientCache.Get(clientName)
+		if !found {
+			err := &s3ClientCache.S3ClientNotFound{Reason: fmt.Sprintf("S3InstanceRef: %s not found in cache", clientName)}
+			logger.Error(err, fmt.Sprintf("S3InstanceRef: %s not found in cache", clientName))
+			return nil, err
+		}
+		logger.Info(fmt.Sprintf("Check if PolicyRessource %s can use S3Instance %s", policyResource.Name, clientName))
+		if utils.IsAllowedNamespaces(policyResource.Namespace, s3Client.GetConfig().AllowedNamespaces) {
+			return s3Client, nil
+		} else {
+			err := &s3ClientCache.S3ClientNotFound{Reason: fmt.Sprintf("Client %s is not allowed in this namespace", policyResource.Spec.S3InstanceRef)}
+			return nil, err
+		}
+	}
 }

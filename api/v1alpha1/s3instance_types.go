@@ -23,27 +23,40 @@ import (
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
 
-// PathSpec defines the desired state of Path
-type PathSpec struct {
-	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
+// S3InstanceSpec defines the desired state of S3Instance
+type S3InstanceSpec struct {
 
-	// Name of the bucket
+	// type of the S3Instance
 	// +kubebuilder:validation:Required
-	BucketName string `json:"bucketName"`
+	S3Provider string `json:"s3Provider"`
 
-	// Paths (folders) to create inside the bucket
-	// +kubebuilder:validation:Optional
-	Paths []string `json:"paths,omitempty"`
+	// url of the S3Instance
+	// +kubebuilder:validation:Required
+	UrlEndpoint string `json:"urlEndpoint"`
 
-	// s3InstanceRef where create the Paths
+	// SecretName associated to the S3Instance containing accessKey and secretKey
+	// +kubebuilder:validation:Required
+	SecretName string `json:"secretName"`
+
+	// region associated to the S3Instance
+	// +kubebuilder:validation:Required
+	Region string `json:"region"`
+
+	// useSSL when connecting to the S3Instance
 	// +kubebuilder:validation:Optional
-	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="S3InstanceRef is immutable"
-	S3InstanceRef string `json:"s3InstanceRef,omitempty"`
+	UseSSL bool `json:"useSSL,omitempty"`
+
+	// Secret containing key ca.crt with the certificate associated to the S3InstanceUrl
+	// +kubebuilder:validation:Optional
+	CaCertSecretRef string `json:"caCertSecretRef,omitempty"`
+
+	// AllowedNamespaces to use this S3InstanceUrl if empty only the namespace of this instance url is allowed to use it
+	// +kubebuilder:validation:Optional
+	AllowedNamespaces []string `json:"allowedNamespaces,omitempty"`
 }
 
-// PathStatus defines the observed state of Path
-type PathStatus struct {
+// S3InstanceStatus defines the observed state of S3Instance
+type S3InstanceStatus struct {
 	// Status management using Conditions.
 	// See also : https://github.com/kubernetes/community/blob/master/contributors/devel/sig-architecture/api-conventions.md#typical-status-properties
 	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type"`
@@ -52,24 +65,24 @@ type PathStatus struct {
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
 
-// Path is the Schema for the paths API
-type Path struct {
+// S3Instance is the Schema for the S3Instances API
+type S3Instance struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   PathSpec   `json:"spec,omitempty"`
-	Status PathStatus `json:"status,omitempty"`
+	Spec   S3InstanceSpec   `json:"spec,omitempty"`
+	Status S3InstanceStatus `json:"status,omitempty"`
 }
 
 //+kubebuilder:object:root=true
 
-// PathList contains a list of Path
-type PathList struct {
+// S3InstanceList contains a list of S3Instance
+type S3InstanceList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []Path `json:"items"`
+	Items           []S3Instance `json:"items"`
 }
 
 func init() {
-	SchemeBuilder.Register(&Path{}, &PathList{})
+	SchemeBuilder.Register(&S3Instance{}, &S3InstanceList{})
 }

@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"strings"
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -26,4 +27,19 @@ func UpdateConditions(existingConditions []metav1.Condition, newCondition metav1
 	}
 
 	return append([]metav1.Condition{newCondition}, existingConditions...)
+}
+
+func IsAllowedNamespaces(namespace string, namespaces []string) bool {
+	for _, allowedNamespace := range namespaces {
+		if strings.HasPrefix(allowedNamespace, "*") && strings.HasSuffix(allowedNamespace, "*") {
+			return strings.Contains(namespace, strings.TrimSuffix(strings.TrimPrefix(allowedNamespace, "*"), "*"))
+		} else if strings.HasPrefix(allowedNamespace, "*") {
+			return strings.HasSuffix(namespace, strings.TrimPrefix(allowedNamespace, "*"))
+		} else if strings.HasSuffix(allowedNamespace, "*") {
+			return strings.HasPrefix(namespace, strings.TrimSuffix(allowedNamespace, "*"))
+		} else {
+			return namespace == allowedNamespace
+		}
+	}
+	return false
 }

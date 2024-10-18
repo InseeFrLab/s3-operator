@@ -35,25 +35,29 @@ type S3Client interface {
 	GetUserPolicies(name string) ([]string, error)
 	AddPoliciesToUser(accessKey string, policies []string) error
 	RemovePoliciesFromUser(accessKey string, policies []string) error
+	GetConfig() *S3Config
 }
 
 type S3Config struct {
-	S3Provider           string
-	S3UrlEndpoint        string
-	Region               string
-	AccessKey            string
-	SecretKey            string
-	UseSsl               bool
-	CaCertificatesBase64 []string
-	CaBundlePath         string
+	S3Provider            string
+	S3Url                 string
+	Region                string
+	AccessKey             string
+	SecretKey             string
+	CaCertificatesBase64  []string
+	AllowedNamespaces     []string
+	BucketDeletionEnabled bool
+	S3UserDeletionEnabled bool
+	PathDeletionEnabled   bool
+	PolicyDeletionEnabled bool
 }
 
-func GetS3Client(s3Provider string, S3Config *S3Config) (S3Client, error) {
+func GenerateS3Client(s3Provider string, S3Config *S3Config) (S3Client, error) {
 	if s3Provider == "mockedS3Provider" {
 		return newMockedS3Client(), nil
 	}
 	if s3Provider == "minio" {
-		return newMinioS3Client(S3Config), nil
+		return newMinioS3Client(S3Config)
 	}
 	return nil, fmt.Errorf("s3 provider " + s3Provider + "not supported")
 }

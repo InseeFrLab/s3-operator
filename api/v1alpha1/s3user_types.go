@@ -45,6 +45,20 @@ type S3UserSpec struct {
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=127
 	S3InstanceRef string `json:"s3InstanceRef,omitempty"`
+
+	// SecretFieldNameAccessKey associated to the S3User
+	// Allow overridden the default key to store the accessKey value in the secret
+	// +kubebuilder:validation:Optional
+	// +kubebuilder:validation:Type="string"
+	// +kubebuilder:default="accessKey"
+	SecretFieldNameAccessKey string `json:"secretFieldNameAccessKey,omitempty"`
+
+	// SecretFieldNameSecretKey associated to the S3User
+	// Allow overridden the default key to store the secretKey value in the secret
+	// +kubebuilder:validation:Optional
+	// +kubebuilder:validation:Type="string"
+	// +kubebuilder:default="secretKey"
+	SecretFieldNameSecretKey string `json:"secretFieldNameSecretKey,omitempty"`
 }
 
 // S3UserStatus defines the observed state of S3User

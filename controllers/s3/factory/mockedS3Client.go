@@ -76,12 +76,10 @@ func (mockedS3Provider *MockedS3Client) PolicyExist(name string) (bool, error) {
 	return true, nil
 }
 
-
 func (mockedS3Provider *MockedS3Client) AddPoliciesToUser(username string, policies []string) error {
 	s3Logger.Info("Adding policies to user", "user", username, "policies", policies)
 	return nil
 }
-
 
 func (mockedS3Provider *MockedS3Client) DeletePolicy(name string) error {
 	s3Logger.Info("delete policy", "policy", name)

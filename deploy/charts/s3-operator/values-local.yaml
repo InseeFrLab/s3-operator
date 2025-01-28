@@ -1,0 +1,51 @@
+crds:
+  # -- Install and upgrade CRDs
+  install: true
+  # -- Keep CRDs on chart uninstall
+  keep: true
+
+controllerManager:
+  manager:
+    containerSecurityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop:
+          - ALL
+    image:
+      repository: proxy-docker-io.insee.fr/inseefrlab/s3-operator
+      tag: implement-multitenancy@sha256:17e0d830ea2cd232caffd75e98104ac62125b22c1e92db03c02e6601117f790f
+    imagePullPolicy: Always
+    imagePullSecrets: []
+    resources:
+      limits:
+        cpu: 1000m
+        memory: 512Mi
+      requests:
+        cpu: 50m
+        memory: 64Mi
+    extraArgs: []
+    extraEnv: {}
+  replicas: 1
+
+kubernetes:
+  clusterDomain: cluster.local
+  overrideExistingSecret: false
+
+s3:
+  default:
+    enabled: false
+    s3Provider: minio
+    url: "https://localhost:9000"
+    accessKey: "accessKey"
+    secretKey: "secretKey"
+    caCertificatesBase64: base64encodedPEMFormatCACertificate
+    region: us-east-1
+    # secretRef: "my-s3-operator-auth-secret"
+    # caCertSecretRef: "my-s3-operator-cert-secret"
+    # allowedNamespaces: ""
+    # Should the operator try to delete the resource from the S3 backend upon CR deletion ?
+    deletion:
+      bucket: false
+      path: false
+      policy: false
+      s3user: false

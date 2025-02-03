@@ -70,8 +70,8 @@ type S3User struct {
 
 // S3UserList contains a list of S3User
 type S3UserList struct {
-	metav1.TypeMeta `json:",inline"`
-	metav1.ListMeta `json:"metadata,omitempty"`
+	metav1.TypeMeta `         json:",inline"`
+	metav1.ListMeta `         json:"metadata,omitempty"`
 	Items           []S3User `json:"items"`
 }
 

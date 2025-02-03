@@ -1,12 +1,20 @@
-name: Release Helm
+name: Helm CI
 
 on:
   push:
     branches:
-      - main
+      - "**"
+    paths-ignore:
+      - 'docs/**'
+    tags:
+      - "*"
+  pull_request:
+    paths-ignore:
+      - 'docs/**'
 
 jobs:
-  release_helm:
+
+  helm-lint:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -17,6 +25,26 @@ jobs:
 
       - name: Lint Chart
         run: helm lint .
+  
+  helm-unitest:
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Helm on Runner
+        uses: azure/setup-helm@v4.2.0
+
+      - name: Lint Chart
+        run: echo "TODO"
+
+  release_helm:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Helm on Runner
+        uses: azure/setup-helm@v4.2.0
 
       - name: Configure Git
         run: |

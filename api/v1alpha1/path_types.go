@@ -68,8 +68,8 @@ type Path struct {
 
 // PathList contains a list of Path
 type PathList struct {
-	metav1.TypeMeta `json:",inline"`
-	metav1.ListMeta `json:"metadata,omitempty"`
+	metav1.TypeMeta `       json:",inline"`
+	metav1.ListMeta `       json:"metadata,omitempty"`
 	Items           []Path `json:"items"`
 }
 

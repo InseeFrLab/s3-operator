@@ -72,13 +72,9 @@ type Bucket struct {
 
 // BucketList contains a list of Bucket
 type BucketList struct {
-	metav1.TypeMeta `json:",inline"`
-	metav1.ListMeta `json:"metadata,omitempty"`
+	metav1.TypeMeta `         json:",inline"`
+	metav1.ListMeta `         json:"metadata,omitempty"`
 	Items           []Bucket `json:"items"`
-}
-
-func init() {
-	SchemeBuilder.Register(&Bucket{}, &BucketList{})
 }
 
 type Quota struct {
@@ -89,4 +85,8 @@ type Quota struct {
 	// Optional override quota, to be used by cluster admin.
 	// +kubebuilder:validation:Optional
 	Override int64 `json:"override,omitempty"`
+}
+
+func init() {
+	SchemeBuilder.Register(&Bucket{}, &BucketList{})
 }

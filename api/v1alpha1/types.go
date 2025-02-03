@@ -13,4 +13,5 @@ const (
 	CreationFailure = "CreationFailure"
 	Reconciled      = "Reconciled"
 	DeletionFailure = "DeletionFailure"
+	DeletionBlocked = "DeletionBlocked"
 )

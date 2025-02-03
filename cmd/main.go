@@ -27,7 +27,14 @@ import (
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
 	s3v1alpha1 "github.com/InseeFrLab/s3-operator/api/v1alpha1"
-	controllers "github.com/InseeFrLab/s3-operator/controllers"
+	bucketControllers "github.com/InseeFrLab/s3-operator/internal/controller/bucket"
+	pathControllers "github.com/InseeFrLab/s3-operator/internal/controller/path"
+	policyControllers "github.com/InseeFrLab/s3-operator/internal/controller/policy"
+	s3InstanceControllers "github.com/InseeFrLab/s3-operator/internal/controller/s3instance"
+	userControllers "github.com/InseeFrLab/s3-operator/internal/controller/user"
+	"github.com/InseeFrLab/s3-operator/internal/helpers"
+	s3factory "github.com/InseeFrLab/s3-operator/internal/s3/factory/impl"
+
 	"go.uber.org/zap/zapcore"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -59,7 +66,6 @@ func (flags *ArrayFlags) Set(value string) error {
 
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
-
 	utilruntime.Must(s3v1alpha1.AddToScheme(scheme))
 	//+kubebuilder:scaffold:scheme
 }
@@ -75,8 +81,18 @@ func main() {
 	//K8S related variable
 	var overrideExistingSecret bool
 
-	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
-	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
+	flag.StringVar(
+		&metricsAddr,
+		"metrics-bind-address",
+		":8080",
+		"The address the metric endpoint binds to.",
+	)
+	flag.StringVar(
+		&probeAddr,
+		"health-probe-bind-address",
+		":8081",
+		"The address the probe endpoint binds to.",
+	)
 	flag.BoolVar(&enableLeaderElection, "leader-elect", false,
 		"Enable leader election for controller manager. "+
 			"Enabling this will ensure there is only one active controller manager.")
@@ -84,7 +100,12 @@ func main() {
 		"Default reconcile period for controllers. Zero to disable periodic reconciliation")
 
 	// S3 related flags
-	flag.BoolVar(&overrideExistingSecret, "override-existing-secret", false, "Override existing secret associated to user in case of the secret already exist")
+	flag.BoolVar(
+		&overrideExistingSecret,
+		"override-existing-secret",
+		false,
+		"Override existing secret associated to user in case of the secret already exist",
+	)
 
 	opts := zap.Options{
 		Development: true,
@@ -100,6 +121,10 @@ func main() {
 	var serverOption = server.Options{
 		BindAddress: metricsAddr,
 	}
+
+	s3Factory := s3factory.NewS3Factory()
+	s3InstanceHelper := helpers.NewS3InstanceHelper()
+	controllerHelper := helpers.NewControllerHelper()
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:  scheme,
@@ -130,43 +155,59 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err = (&controllers.S3InstanceReconciler{
-		Client:          mgr.GetClient(),
-		Scheme:          mgr.GetScheme(),
-		ReconcilePeriod: reconcilePeriod,
+	if err = (&s3InstanceControllers.S3InstanceReconciler{
+		Client:           mgr.GetClient(),
+		Scheme:           mgr.GetScheme(),
+		ReconcilePeriod:  reconcilePeriod,
+		S3factory:        s3Factory,
+		ControllerHelper: controllerHelper,
+		S3Instancehelper: s3InstanceHelper,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "S3Instance")
 		os.Exit(1)
 	}
-	if err = (&controllers.BucketReconciler{
-		Client:          mgr.GetClient(),
-		Scheme:          mgr.GetScheme(),
-		ReconcilePeriod: reconcilePeriod,
+	if err = (&bucketControllers.BucketReconciler{
+		Client:           mgr.GetClient(),
+		Scheme:           mgr.GetScheme(),
+		ReconcilePeriod:  reconcilePeriod,
+		S3factory:        s3Factory,
+		ControllerHelper: controllerHelper,
+		S3Instancehelper: s3InstanceHelper,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Bucket")
 		os.Exit(1)
 	}
-	if err = (&controllers.PathReconciler{
-		Client:          mgr.GetClient(),
-		Scheme:          mgr.GetScheme(),
-		ReconcilePeriod: reconcilePeriod,
+	if err = (&pathControllers.PathReconciler{
+		Client:           mgr.GetClient(),
+		Scheme:           mgr.GetScheme(),
+		ReconcilePeriod:  reconcilePeriod,
+		S3factory:        s3Factory,
+		ControllerHelper: controllerHelper,
+		S3Instancehelper: s3InstanceHelper,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Path")
 		os.Exit(1)
 	}
-	if err = (&controllers.PolicyReconciler{
-		Client:          mgr.GetClient(),
-		Scheme:          mgr.GetScheme(),
-		ReconcilePeriod: reconcilePeriod,
+	if err = (&policyControllers.PolicyReconciler{
+		Client:           mgr.GetClient(),
+		Scheme:           mgr.GetScheme(),
+		ReconcilePeriod:  reconcilePeriod,
+		S3factory:        s3Factory,
+		ControllerHelper: controllerHelper,
+		S3Instancehelper: s3InstanceHelper,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Policy")
 		os.Exit(1)
 	}
-	if err = (&controllers.S3UserReconciler{
-		Client:                 mgr.GetClient(),
-		Scheme:                 mgr.GetScheme(),
-		OverrideExistingSecret: overrideExistingSecret,
-		ReconcilePeriod:        reconcilePeriod,
+	if err = (&userControllers.S3UserReconciler{
+		Client:                  mgr.GetClient(),
+		Scheme:                  mgr.GetScheme(),
+		OverrideExistingSecret:  overrideExistingSecret,
+		ReconcilePeriod:         reconcilePeriod,
+		S3factory:               s3Factory,
+		ControllerHelper:        controllerHelper,
+		S3Instancehelper:        s3InstanceHelper,
+		PasswordGeneratorHelper: helpers.NewPasswordGenerator(),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "S3User")
 		os.Exit(1)

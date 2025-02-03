@@ -2,7 +2,6 @@
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  creationTimestamp: null
   name: manager-role
 rules:
 - apiGroups:
@@ -34,109 +33,9 @@ rules:
   - s3.onyxia.sh
   resources:
   - buckets
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - s3.onyxia.sh
-  resources:
-  - buckets/finalizers
-  verbs:
-  - update
-- apiGroups:
-  - s3.onyxia.sh
-  resources:
-  - buckets/status
-  verbs:
-  - get
-  - patch
-  - update
-- apiGroups:
-  - s3.onyxia.sh
-  resources:
   - paths
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - s3.onyxia.sh
-  resources:
-  - paths/finalizers
-  verbs:
-  - update
-- apiGroups:
-  - s3.onyxia.sh
-  resources:
-  - paths/status
-  verbs:
-  - get
-  - patch
-  - update
-- apiGroups:
-  - s3.onyxia.sh
-  resources:
   - policies
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - s3.onyxia.sh
-  resources:
-  - policies/finalizers
-  verbs:
-  - update
-- apiGroups:
-  - s3.onyxia.sh
-  resources:
-  - policies/status
-  verbs:
-  - get
-  - patch
-  - update
-- apiGroups:
-  - s3.onyxia.sh
-  resources:
   - s3instances
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - s3.onyxia.sh
-  resources:
-  - s3instances/finalizers
-  verbs:
-  - update
-- apiGroups:
-  - s3.onyxia.sh
-  resources:
-  - s3instances/status
-  verbs:
-  - get
-  - patch
-  - update
-- apiGroups:
-  - s3.onyxia.sh
-  resources:
   - s3users
   verbs:
   - create
@@ -149,12 +48,20 @@ rules:
 - apiGroups:
   - s3.onyxia.sh
   resources:
+  - buckets/finalizers
+  - paths/finalizers
+  - policies/finalizers
+  - s3instances/finalizers
   - s3users/finalizers
   verbs:
   - update
 - apiGroups:
   - s3.onyxia.sh
   resources:
+  - buckets/status
+  - paths/status
+  - policies/status
+  - s3instances/status
   - s3users/status
   verbs:
   - get

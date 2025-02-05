@@ -205,10 +205,22 @@ spec:
   # Content of the policy, as a multiline string 
   # This should be IAM compliant JSON - follow the guidelines of the actual
   # S3 provider you're using, as sometimes only a subset is available.
+  # The first Statement (Allow ListBucket) should be applied to every user,
+  # as s3-operator uses this call to verify that credentials are valid when
+  # reconciling an existing user.
   policyContent: >-
     {
       "Version": "2012-10-17",
       "Statement": [
+      {
+        "Effect": "Allow",
+        "Action": [
+          "s3:ListBucket"
+        ],
+        "Resource": [
+          "arn:aws:s3:::*"
+        ]
+      },
       {
         "Effect": "Allow",
         "Action": [

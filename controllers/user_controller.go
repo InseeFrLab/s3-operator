@@ -154,30 +154,6 @@ func (r *S3UserReconciler) handleS3ExistingUser(ctx context.Context, userResourc
 		return r.handleS3NewUser(ctx, userResource)
 	}
 
-	// If a matching secret is found, then we check if it is still valid, as in : do the credentials it
-	// contains still allow authenticating the S3User on the backend ? If not, the user is deleted and recreated.
-	// credentialsValid, err := r.S3Client.CheckUserCredentialsValid(userResource.Name, userResource.Spec.AccessKey, string(userOwnedSecret.Data["secretKey"]))
-	credentialsValid, err := r.S3Client.CheckUserCredentialsValid(userResource.Name, string(userOwnedSecret.Data["accessKey"]), string(userOwnedSecret.Data["secretKey"]))
-	if err != nil {
-		logger.Error(err, "An error occurred when checking if user credentials were valid", "user", userResource.Name)
-		return r.setS3UserStatusConditionAndUpdate(ctx, userResource, "OperatorFailed", metav1.ConditionFalse, "S3UserCredentialsCheckFailed",
-			fmt.Sprintf("Checking the S3User %s's credentials on S3 server has failed", userResource.Name), err)
-	}
-
-	if !credentialsValid {
-		logger.Info("The secret containing the credentials will be deleted, and the user will be deleted from the S3 backend, then recreated (through another reconcile)")
-		r.deleteSecret(ctx, &userOwnedSecret)
-		err = r.S3Client.DeleteUser(userResource.Spec.AccessKey)
-		if err != nil {
-			logger.Error(err, "Could not delete user on S3 server", "user", userResource.Name)
-			return r.setS3UserStatusConditionAndUpdate(ctx, userResource, "OperatorFailed", metav1.ConditionFalse, "S3UserDeletionFailed",
-				fmt.Sprintf("Deletion of S3user %s on S3 server has failed", userResource.Name), err)
-		}
-
-		return r.handleS3NewUser(ctx, userResource)
-
-	}
-
 	// --- End Secret management section
 
 	logger.Info("Checking user policies")
@@ -223,6 +199,30 @@ func (r *S3UserReconciler) handleS3ExistingUser(ctx context.Context, userResourc
 				fmt.Sprintf("Error while updating policies of user %s on S3 backend has failed", userResource.Name), err)
 		}
 	}
+
+        // If a matching secret is found, then we check if it is still valid, as in : do the credentials it
+        // contains still allow authenticating the S3User on the backend ? If not, the user is deleted and recreated.
+        // credentialsValid, err := r.S3Client.CheckUserCredentialsValid(userResource.Name, userResource.Spec.AccessKey, string(userOwnedSecret.Data["secretKey"]))
+        credentialsValid, err := r.S3Client.CheckUserCredentialsValid(userResource.Name, string(userOwnedSecret.Data["accessKey"]), string(userOwnedSecret.Data["secretKey"]))
+        if err != nil {
+                logger.Error(err, "An error occurred when checking if user credentials were valid", "user", userResource.Name)
+                return r.setS3UserStatusConditionAndUpdate(ctx, userResource, "OperatorFailed", metav1.ConditionFalse, "S3UserCredentialsCheckFailed",
+                        fmt.Sprintf("Checking the S3User %s's credentials on S3 server has failed", userResource.Name), err)
+        }
+
+        if !credentialsValid {
+                logger.Info("The secret containing the credentials will be deleted, and the user will be deleted from the S3 backend, then recreated (through another reconcile)")
+                r.deleteSecret(ctx, &userOwnedSecret)
+                err = r.S3Client.DeleteUser(userResource.Spec.AccessKey)
+                if err != nil {
+                        logger.Error(err, "Could not delete user on S3 server", "user", userResource.Name)
+                        return r.setS3UserStatusConditionAndUpdate(ctx, userResource, "OperatorFailed", metav1.ConditionFalse, "S3UserDeletionFailed",
+                                fmt.Sprintf("Deletion of S3user %s on S3 server has failed", userResource.Name), err)
+                }
+
+                return r.handleS3NewUser(ctx, userResource)
+
+        }
 
 	logger.Info("User was reconciled without error")
 

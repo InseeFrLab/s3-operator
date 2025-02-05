@@ -250,7 +250,7 @@ func (r *S3UserReconciler) handleS3NewUser(ctx context.Context, userResource *s3
 	}
 
 	// Create a new K8S Secret to hold the user's accessKey and secretKey
-	secret, err := r.newSecretForCR(ctx, userResource, map[string][]byte{"accessKey": []byte(userResource.Spec.AccessKey), "secretKey": []byte(secretKey)})
+	secret, err := r.newSecretForCR(ctx, userResource, map[string][]byte{userResource.Spec.SecretFieldNameAccessKey: []byte(userResource.Spec.AccessKey), userResource.Spec.SecretFieldNameSecretKey: []byte(secretKey)})
 	if err != nil {
 		// Error while creating the Kubernetes secret - requeue the request.
 		logger.Error(err, "Could not generate Kubernetes secret")

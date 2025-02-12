@@ -247,6 +247,26 @@ func (r *S3UserReconciler) handleUpdate(
 		)
 	}
 
+	err = r.deleteOldLinkedSecret(ctx, userResource)
+	if err != nil {
+		logger.Error(
+			err,
+			"An error occurred when trying to clean old secret linked to user",
+			"userResourceName",
+			userResource.Name,
+			"NamespacedName",
+			req.NamespacedName.String(),
+		)
+		return r.SetReconciledCondition(
+			ctx,
+			req,
+			userResource,
+			s3v1alpha1.Unreachable,
+			"Deletion of old secret associated to user have failed",
+			err,
+		)
+	}
+
 	userOwnedSecret, err := r.getUserSecret(ctx, userResource)
 	if err != nil {
 		if err.Error() == "SecretListingFailed" {
@@ -359,82 +379,6 @@ func (r *S3UserReconciler) handleUpdate(
 		return r.handleCreate(ctx, req, userResource)
 	}
 
-	credentialsValid, err := s3Client.CheckUserCredentialsValid(
-		userResource.Name,
-		string(userOwnedSecret.Data["accessKey"]),
-		string(userOwnedSecret.Data["secretKey"]),
-	)
-	if err != nil {
-		logger.Error(
-			err,
-			"An error occurred when checking if user credentials were valid",
-			"userResource",
-			userResource.Name,
-			"NamespacedName",
-			req.NamespacedName.String(),
-		)
-		return r.SetReconciledCondition(
-			ctx,
-			req,
-			userResource,
-			s3v1alpha1.Unreachable,
-			"Checking credentials on S3 server has failed",
-			err,
-		)
-	}
-
-	if !credentialsValid {
-		logger.Info(
-			"The secret containing the credentials will be deleted, and the user will be deleted from the S3 backend, then recreated (through another reconcile)",
-			"userResource",
-			userResource.Name,
-			"NamespacedName",
-			req.NamespacedName.String(),
-		)
-		err = r.deleteSecret(ctx, &userOwnedSecret)
-		if err != nil {
-			logger.Error(err, "Deletion of secret associated to user have failed", "userResource",
-				userResource.Name,
-				"userResourceName",
-				userResource.Name,
-				"NamespacedName",
-				req.NamespacedName.String())
-			return r.SetReconciledCondition(
-				ctx,
-				req,
-				userResource,
-				s3v1alpha1.Unreachable,
-				"Deletion of secret associated to user have failed",
-				err,
-			)
-
-		}
-		err = s3Client.DeleteUser(userResource.Spec.AccessKey)
-		if err != nil {
-			logger.Error(err, "Could not delete user on S3 server", "userResource",
-				userResource.Name,
-				"userResourceName",
-				userResource.Name,
-				"NamespacedName",
-				req.NamespacedName.String())
-			return r.SetReconciledCondition(
-				ctx,
-				req,
-				userResource,
-				s3v1alpha1.Unreachable,
-				fmt.Sprintf(
-					"Deletion of S3user %s on S3 server has failed",
-					userResource.Name,
-				),
-				err,
-			)
-
-		}
-		return r.handleCreate(ctx, req, userResource)
-	}
-
-	// --- End Secret management section
-
 	logger.Info("Checking user policies", "userResource",
 		userResource.Name,
 		"NamespacedName",
@@ -531,27 +475,87 @@ func (r *S3UserReconciler) handleUpdate(
 		}
 	}
 
+	credentialsValid, err := s3Client.CheckUserCredentialsValid(
+		userResource.Name,
+		string(userOwnedSecret.Data[userResource.Spec.SecretFieldNameAccessKey]),
+		string(userOwnedSecret.Data[userResource.Spec.SecretFieldNameSecretKey]),
+	)
+
+	if err != nil {
+		logger.Error(
+			err,
+			"An error occurred when checking if user credentials were valid",
+			"userResource",
+			userResource.Name,
+			"NamespacedName",
+			req.NamespacedName.String(),
+		)
+		return r.SetReconciledCondition(
+			ctx,
+			req,
+			userResource,
+			s3v1alpha1.Unreachable,
+			"Checking credentials on S3 server has failed",
+			err,
+		)
+	}
+
+	if !credentialsValid {
+		logger.Info(
+			"The secret containing the credentials will be deleted, and the user will be deleted from the S3 backend, then recreated (through another reconcile)",
+			"userResource",
+			userResource.Name,
+			"NamespacedName",
+			req.NamespacedName.String(),
+		)
+		err = r.deleteSecret(ctx, &userOwnedSecret)
+		if err != nil {
+			logger.Error(err, "Deletion of secret associated to user have failed", "userResource",
+				userResource.Name,
+				"userResourceName",
+				userResource.Name,
+				"NamespacedName",
+				req.NamespacedName.String())
+			return r.SetReconciledCondition(
+				ctx,
+				req,
+				userResource,
+				s3v1alpha1.Unreachable,
+				"Deletion of secret associated to user have failed",
+				err,
+			)
+
+		}
+		err = s3Client.DeleteUser(userResource.Spec.AccessKey)
+		if err != nil {
+			logger.Error(err, "Could not delete user on S3 server", "userResource",
+				userResource.Name,
+				"userResourceName",
+				userResource.Name,
+				"NamespacedName",
+				req.NamespacedName.String())
+			return r.SetReconciledCondition(
+				ctx,
+				req,
+				userResource,
+				s3v1alpha1.Unreachable,
+				fmt.Sprintf(
+					"Deletion of S3user %s on S3 server has failed",
+					userResource.Name,
+				),
+				err,
+			)
+
+		}
+		return r.handleCreate(ctx, req, userResource)
+	}
+
 	logger.Info("User was reconciled without error",
 		"userResource",
 		userResource.Name,
 		"NamespacedName",
 		req.NamespacedName.String(),
 	)
-
-	// Re-fetch the S3User to ensure we have the latest state after updating the secret
-	// This is necessary at least when creating a user with secretName targetting a pre-existing secret
-	// that has proper form (data.accessKey and data.secretKey) but isn't owned by any other s3user
-	if err := r.Get(ctx, req.NamespacedName, userResource); err != nil {
-		logger.Error(
-			err,
-			"Failed to re-fetch userResource",
-			"userResourceName",
-			userResource.Name,
-			"NamespacedName",
-			req.NamespacedName.String(),
-		)
-		return ctrl.Result{}, err
-	}
 
 	return r.SetReconciledCondition(
 		ctx,
@@ -617,9 +621,8 @@ func (r *S3UserReconciler) handleCreate(
 		ctx,
 		userResource,
 		map[string][]byte{
-			"accessKey": []byte(userResource.Spec.AccessKey),
-			"secretKey": []byte(secretKey),
-		},
+			userResource.Spec.SecretFieldNameAccessKey: []byte(userResource.Spec.AccessKey),
+			userResource.Spec.SecretFieldNameSecretKey: []byte(secretKey)},
 	)
 	if err != nil {
 		// Error while creating the Kubernetes secret - requeue the request.

@@ -14,12 +14,19 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package s3factory
+package helpers_test
 
 import (
-	s3client "github.com/InseeFrLab/s3-operator/internal/s3/client"
+	"testing"
+
+	helpers "github.com/InseeFrLab/s3-operator/internal/helpers"
+	"github.com/stretchr/testify/assert"
 )
 
-type S3Factory interface {
-	GenerateS3Client(s3Provider string, s3Config *s3client.S3Config) (s3client.S3Client, error)
+func TestGenerate(t *testing.T) {
+	t.Run("Exact match", func(t *testing.T) {
+		passwordGenerator := helpers.NewPasswordGenerator()
+		password, _ := passwordGenerator.Generate(20, true, true, true)
+		assert.Len(t, password, 20)
+	})
 }

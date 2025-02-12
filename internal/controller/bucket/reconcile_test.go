@@ -75,3 +75,66 @@ func TestHandleCreate(t *testing.T) {
 		assert.NoError(t, err)
 	})
 }
+
+func TestHandleUpdate(t *testing.T) {
+	// Set up a logger before running tests
+	log.SetLogger(zap.New(zap.UseDevMode(true)))
+
+	// Create a fake client with a sample CR
+	bucketResource := &s3v1alpha1.Bucket{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:       "existing-bucket",
+			Namespace:  "default",
+			Generation: 1,
+			Finalizers: []string{"s3.onyxia.sh/finalizer"},
+		},
+		Spec: s3v1alpha1.BucketSpec{
+			Name:          "existing-bucket",
+			Paths:         []string{"example"},
+			S3InstanceRef: "s3-operator/default",
+			Quota:         s3v1alpha1.Quota{Default: 10},
+		},
+	}
+
+	// Create a fake client with a sample CR
+	bucketInvalidResource := &s3v1alpha1.Bucket{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:       "existing-invalid-bucket",
+			Namespace:  "default",
+			Generation: 1,
+			Finalizers: []string{"s3.onyxia.sh/finalizer"},
+		},
+		Spec: s3v1alpha1.BucketSpec{
+			Name:          "existing-invalid-bucket",
+			Paths:         []string{"example", "non-existing"},
+			S3InstanceRef: "s3-operator/default",
+			Quota:         s3v1alpha1.Quota{Default: 100}},
+	}
+
+	// Add mock for s3Factory and client
+	testUtils := TestUtils.NewTestUtils()
+	testUtils.SetupMockedS3FactoryAndClient()
+	s3instanceResource, secretResource := testUtils.GenerateBasicS3InstanceAndSecret()
+	testUtils.SetupClient([]client.Object{s3instanceResource, secretResource, bucketResource, bucketInvalidResource})
+
+	// Create the reconciler
+	reconciler := &bucket_controller.BucketReconciler{
+		Client:    testUtils.Client,
+		Scheme:    testUtils.Client.Scheme(),
+		S3factory: testUtils.S3Factory,
+	}
+
+	t.Run("no error", func(t *testing.T) {
+		// Call Reconcile function
+		req := ctrl.Request{NamespacedName: types.NamespacedName{Name: bucketResource.Name, Namespace: bucketResource.Namespace}}
+		_, err := reconciler.Reconcile(context.TODO(), req)
+		assert.NoError(t, err)
+	})
+
+	t.Run("no error", func(t *testing.T) {
+		// Call Reconcile function
+		req := ctrl.Request{NamespacedName: types.NamespacedName{Name: bucketInvalidResource.Name, Namespace: bucketInvalidResource.Namespace}}
+		_, err := reconciler.Reconcile(context.TODO(), req)
+		assert.NoError(t, err)
+	})
+}

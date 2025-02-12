@@ -1,3 +1,19 @@
+/*
+Copyright 2023.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package testUtils
 
 import (
@@ -67,8 +83,17 @@ func (t *TestUtils) SetupMockedS3FactoryAndClient() {
 	mockedS3Client.On("CheckUserCredentialsValid", "existing-valid-user", "existing-valid-user", "invalidSecret").Return(false, nil)
 	mockedS3Client.On("CheckUserCredentialsValid", "existing-valid-user", "existing-valid-user", "validSecret").Return(true, nil)
 	mockedS3Client.On("CheckUserCredentialsValid", "existing-valid-user", "existing-valid-user", mock.AnythingOfType("string")).Return(true, nil)
-
+	mockedS3Client.On("GetQuota", "existing-bucket").Return(10, nil)
+	mockedS3Client.On("GetQuota", "existing-invalid-bucket").Return(10, nil)
+	mockedS3Client.On("SetQuota", "existing-invalid-bucket", int64(100)).Return(nil)
 	mockedS3Client.On("GetUserPolicies", "existing-valid-user").Return([]string{"admin"}, nil)
+	mockedS3Client.On("PathExists", "existing-bucket", "example").Return(true, nil)
+	mockedS3Client.On("PathExists", "existing-invalid-bucket", "example").Return(true, nil)
+	mockedS3Client.On("PathExists", "existing-invalid-bucket", "non-existing").Return(false, nil)
+	mockedS3Client.On("BucketExists", "existing-invalid-bucket").Return(true, nil)
+	mockedS3Client.On("BucketExists", "non-existing-bucket").Return(false, nil)
+
+	mockedS3Client.On("CreatePath", "existing-invalid-bucket", "non-existing").Return(nil)
 
 	mockedS3Client.On("DeleteUser", "existing-valid-user").Return(nil)
 
@@ -76,6 +101,7 @@ func (t *TestUtils) SetupMockedS3FactoryAndClient() {
 	mockedInvalidS3Client.On("BucketExists", "test-bucket").Return(false, nil)
 	mockedInvalidS3Client.On("CreateBucket", "test-bucket").Return(nil)
 	mockedInvalidS3Client.On("SetQuota", "test-bucket", int64(10)).Return(nil)
+
 	mockedInvalidS3Client.On("ListBuckets").Return([]string{}, fmt.Errorf("random error"))
 
 	mockedS3factory := mocks.NewMockedS3ClientFactory()

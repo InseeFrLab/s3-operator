@@ -33,9 +33,14 @@ jobs:
 
       - name: Docker meta
         id: docker_meta
-        uses: crazy-max/ghaction-docker-meta@v5.1.0
+        uses: docker/metadata-action@v5
         with:
           images: inseefrlab/s3-operator # list of Docker images to use as base name for tags
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -51,17 +56,15 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Build and push
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: .
           file: ./Dockerfile
           push: ${{ github.event_name != 'pull_request' }}
-          # Use tags computed before and also latest if on master
+          # Use tags computed before
           tags: |
             ${{ steps.docker_meta.outputs.tags }}
-            ${{ github.ref == 'refs/heads/main' && 'inseefrlab/s3-operator:latest' || '' }}
           labels: ${{ steps.docker_meta.outputs.labels }}
           platforms: linux/amd64,linux/arm64
-
       - name: Image digest
         run: echo ${{ steps.docker_build.outputs.digest }}

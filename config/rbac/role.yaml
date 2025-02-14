@@ -5,27 +5,26 @@ metadata:
   name: manager-role
 rules:
 - apiGroups:
-  - s3.onyxia.sh
+  - ""
   resources:
-  - S3User
+  - secrets
   verbs:
   - create
   - delete
   - get
   - list
-  - patch
   - update
   - watch
 - apiGroups:
-  - s3.onyxia.sh
+  - ""
   resources:
-  - S3User/finalizers
+  - secrets/finalizers
   verbs:
   - update
 - apiGroups:
-  - s3.onyxia.sh
+  - ""
   resources:
-  - S3User/status
+  - secrets/status
   verbs:
   - get
   - patch
@@ -34,6 +33,10 @@ rules:
   - s3.onyxia.sh
   resources:
   - buckets
+  - paths
+  - policies
+  - s3instances
+  - s3users
   verbs:
   - create
   - delete
@@ -46,64 +49,20 @@ rules:
   - s3.onyxia.sh
   resources:
   - buckets/finalizers
+  - paths/finalizers
+  - policies/finalizers
+  - s3instances/finalizers
+  - s3users/finalizers
   verbs:
   - update
 - apiGroups:
   - s3.onyxia.sh
   resources:
   - buckets/status
-  verbs:
-  - get
-  - patch
-  - update
-- apiGroups:
-  - s3.onyxia.sh
-  resources:
-  - paths
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - s3.onyxia.sh
-  resources:
-  - paths/finalizers
-  verbs:
-  - update
-- apiGroups:
-  - s3.onyxia.sh
-  resources:
   - paths/status
-  verbs:
-  - get
-  - patch
-  - update
-- apiGroups:
-  - s3.onyxia.sh
-  resources:
-  - policies
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - s3.onyxia.sh
-  resources:
-  - policies/finalizers
-  verbs:
-  - update
-- apiGroups:
-  - s3.onyxia.sh
-  resources:
   - policies/status
+  - s3instances/status
+  - s3users/status
   verbs:
   - get
   - patch

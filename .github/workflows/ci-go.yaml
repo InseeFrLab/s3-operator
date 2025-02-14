@@ -1,0 +1,41 @@
+name: Golang CI
+
+on:
+  push:
+    branches:
+      - "**"
+    paths-ignore:
+      - 'docs/**'
+    tags:
+      - "*"
+  pull_request:
+    paths-ignore:
+      - 'docs/**'
+
+jobs:
+
+  go:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+      - name: Install dependencies
+        run: go mod download
+      - name: Test with Go
+        run: go test -v ./... -coverprofile cover.out
+      - name: Upload Go test results
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: cover.out
+      - name: Build
+        run: go build -v ./...
+      - name: 'Upload Artifact'
+        uses: actions/upload-artifact@v4
+        with:
+          name: manager
+          path: ./bin/manager

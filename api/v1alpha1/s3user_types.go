@@ -38,6 +38,14 @@ type S3UserSpec struct {
 	// +kubebuilder:validation:Optional
 	SecretName string `json:"secretName"`
 
+	// s3InstanceRef where create the user
+	// +kubebuilder:default=s3-operator/default
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="s3InstanceRef is immutable"
+	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?(/[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?)?$`
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=127
+	S3InstanceRef string `json:"s3InstanceRef,omitempty"`
+
 	// SecretFieldNameAccessKey associated to the S3User
 	// Allow overridden the default key to store the accessKey value in the secret
 	// +kubebuilder:validation:Optional
@@ -76,8 +84,8 @@ type S3User struct {
 
 // S3UserList contains a list of S3User
 type S3UserList struct {
-	metav1.TypeMeta `json:",inline"`
-	metav1.ListMeta `json:"metadata,omitempty"`
+	metav1.TypeMeta `         json:",inline"`
+	metav1.ListMeta `         json:"metadata,omitempty"`
 	Items           []S3User `json:"items"`
 }
 

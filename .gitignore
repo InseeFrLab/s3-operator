@@ -25,3 +25,5 @@ Dockerfile.cross
 *.swo
 *~
 .vscode
+
+values-local.yaml

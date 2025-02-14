@@ -1,0 +1,69 @@
+{{- if .Values.s3.default.enabled -}}
+apiVersion: s3.onyxia.sh/v1alpha1
+kind: S3Instance
+metadata:
+  labels:
+    app.kubernetes.io/component: manager
+    app.kubernetes.io/created-by: s3-operator
+    app.kubernetes.io/part-of: s3-operator
+    control-plane: controller-manager
+    {{- include "s3-operator.labels" . | nindent 4 }}
+  name: default
+spec:
+  s3Provider: {{ .Values.s3.default.s3Provider }}
+  url: {{ .Values.s3.default.url }}
+  {{- if .Values.s3.default.secretRef }}
+  secretRef: {{ .Values.s3.default.secretRef }}
+  {{- else }}
+  secretRef: default-s3instance-credentials
+  {{- end }}
+  {{- if .Values.s3.default.caCertSecretRef }}
+  caCertSecretRef: {{ .Values.s3.default.caCertSecretRef }}
+  {{- else }}
+  caCertSecretRef: default-s3instance-certificates
+  {{- end }}
+  {{- if .Values.s3.default.allowedNamespaces }}
+  allowedNamespaces: {{ .Values.s3.default.allowedNamespaces }}
+  {{- end }}
+  {{- if .Values.s3.default.region }}
+  region: {{ .Values.s3.default.region }}
+  {{- end }}
+  s3UserDeletionEnabled: {{ .Values.s3.default.deletion.s3user }}
+  pathDeletionEnabled: {{ .Values.s3.default.deletion.path }}
+  policyDeletionEnabled: {{ .Values.s3.default.deletion.policy }}
+  bucketDeletionEnabled: {{ .Values.s3.default.deletion.bucket }}
+
+{{- if not .Values.s3.default.secretRef }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  labels:
+    app.kubernetes.io/component: manager
+    app.kubernetes.io/created-by: s3-operator
+    app.kubernetes.io/part-of: s3-operator
+    control-plane: controller-manager
+    {{- include "s3-operator.labels" . | nindent 4 }}
+  name: default-s3instance-credentials
+type: Opaque
+data:
+  S3_ACCESS_KEY: {{- .Values.s3.default.accessKey }}
+  S3_SECRET_KEY: {{- .Values.s3.default.secretKey }}
+{{- end }}
+{{- if not .Values.s3.default.caCertSecretRef }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  labels:
+    app.kubernetes.io/component: manager
+    app.kubernetes.io/created-by: s3-operator
+    app.kubernetes.io/part-of: s3-operator
+    control-plane: controller-manager
+    {{- include "s3-operator.labels" . | nindent 4 }}
+  name: default-s3instance-certificates
+type: Opaque
+data:
+  ca.crt: {{- .Values.s3.default.caCertificatesBase64 }}
+{{- end }}
+{{- end -}}

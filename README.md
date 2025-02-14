@@ -4,7 +4,7 @@ This Operator SDK based tool aims at managing S3 related resources (buckets, pol
 
 ## At a glance
 
-- Current S3 providers : [Minio](https://github.com/InseeFrLab/s3-operator/blob/main/controllers/s3/factory/minioS3Client.go)
+- Current S3 providers : [Minio](https://github.com/InseeFrLab/s3-operator/blob/main/internal/s3/factory/minioS3Client.go)
 - Currently managed S3 resources : [buckets](https://github.com/InseeFrLab/s3-operator/blob/main/api/v1alpha1/bucket_types.go), [policies](https://github.com/InseeFrLab/s3-operator/blob/main/api/v1alpha1/policy_types.go)
 
 ## Compatibility
@@ -21,7 +21,8 @@ At its heart, the operator revolves around CRDs that match S3 resources :
 - `buckets.s3.onyxia.sh`
 - `policies.s3.onyxia.sh`
 - `paths.s3.onyxia.sh`
-- `users.s3.onyxia.sh`
+- `s3Users.s3.onyxia.sh`
+- `s3Instances.s3.onyxia.sh`
 
 The custom resources based on these CRDs are a somewhat simplified projection of the real S3 resources. From the operator's point of view : 
 
@@ -29,6 +30,7 @@ The custom resources based on these CRDs are a somewhat simplified projection of
 - A `Policy` CR matches a "canned" policy (not a bucket policy, but a global one, that can be attached to a user), and has a name, and its actual content (IAM JSON)
 - A `Path` CR matches a set of paths inside of a policy. This is akin to the `paths` property of the `Bucket` CRD, except `Path` is not responsible for Bucket creation. 
 - A `S3User` CR matches a user in the s3 server, and has a name, a set of policy and a set of group.
+- A `S3Instance` CR matches a s3Instance. 
 
 Each custom resource based on these CRDs on Kubernetes is to be matched with a resource on the S3 instance. If the CR and the corresponding S3 resource diverge, the operator will create or update the S3 resource to bring it back to.
 
@@ -72,25 +74,12 @@ The operator exposes a few parameters, meant to be set as arguments, though it's
 
 The parameters are summarized in the table below :
 
-| Flag name                       | Default          | Environment variable | Multiple values allowed | Description                                                                                                                                    |
-| ------------------------------- | ---------------- | -------------------- | ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| `health-probe-bind-address`     | `:8081`          | -                    | no                      | The address the probe endpoint binds to. Comes from Operator SDK.                                                                              |
-| `leader-elect`                  | `false`          | -                    | no                      | Enable leader election for controller manager. Enabling this will ensure there is only one active controller manager. Comes from Operator SDK. |
-| `metrics-bind-address`          | `:8080`          | -                    | no                      | The address the metric endpoint binds to. Comes from Operator SDK.                                                                             |
-| `region`                        | `us-east-1`      | -                    | no                      | The region to configure for the S3 client.                                                                                                     |
-| `s3-access-key`                 | -                | `S3_ACCESS_KEY`      | no                      | The access key used to interact with the S3 server.                                                                                            |
-| `s3-ca-certificate-base64`      | -                | -                    | yes                     | (Optional) Base64 encoded, PEM format CA certificate, for https requests to the S3 server.                                                     |
-| `s3-ca-certificate-bundle-path` | -                | -                    | no                      | (Optional) Path to a CA certificates bundle file, for https requests to the S3 server.                                                         |
-| `s3-endpoint-url`               | `localhost:9000` | -                    | no                      | Hostname (or hostname:port) of the S3 server.                                                                                                  |
-| `s3-provider`                   | `minio`          | -                    | no                      | S3 provider (possible values : `minio`, `mockedS3Provider`)                                                                                    |
-| `s3-secret-key`                 | -                | `S3_SECRET_KEY`      | no                      | The secret key used to interact with  the S3 server.                                                                                           |
-| `useSsl`                        | true             | -                    | no                      | Use of SSL/TLS to connect to the S3 server                                                                                                     |
-| `bucket-deletion`               | false            | -                    | no                      | Trigger bucket deletion on the S3 backend upon CR deletion. Will fail if bucket is not empty.                                                  |
-| `policy-deletion`               | false            | -                    | no                      | Trigger policy deletion on the S3 backend upon CR deletion                                                                                     |
-| `path-deletion`                 | false            | -                    | no                      | Trigger path deletion on the S3 backend upon CR deletion. Limited to deleting the `.keep` files used by the operator.                          |
-| `s3User-deletion`               | false            | -                    | no                      | Trigger S3User deletion on the S3 backend upon CR deletion.                                                                                    |
-| `override-existing-secret`      | false            | -                    | no                      | Update secret linked to s3User if already exist, else noop                                                                                     |
-
+| Flag name                   | Default | Environment variable | Multiple values allowed | Description                                                                                                                                    |
+| --------------------------- | ------- | -------------------- | ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `health-probe-bind-address` | `:8081` | -                    | no                      | The address the probe endpoint binds to. Comes from Operator SDK.                                                                              |
+| `leader-elect`              | `false` | -                    | no                      | Enable leader election for controller manager. Enabling this will ensure there is only one active controller manager. Comes from Operator SDK. |
+| `metrics-bind-address`      | `:8080` | -                    | no                      | The address the metric endpoint binds to. Comes from Operator SDK.                                                                             |  |
+| `override-existing-secret`  | false   | -                    | no                      | Update secret linked to s3User if already exist, else noop                                                                                     |
 ## Minimal rights needed to work
 
 The Operator need at least this rights:
@@ -147,6 +136,34 @@ The Operator need at least this rights:
 - The same will happen if you modify a CR - the operator will adjust the S3 bucket or policy accordingly - with the notable exception that it will not delete paths for buckets.
 - Upon deleting a CR, the corresponding bucket or policy will be left as is, as mentioned in the [*Description* section above](#description)
 
+An instance of S3Operator can manage multiple S3. On each resource created you can set where to create it. To add multiple instance of S3 see S3Instance example. On each object deployed you can attach it to an existing s3Instance. If no instance is set on the resource, S3Operator will failback to default instance configured by env var.
+
+### S3Instance example
+
+```yaml
+apiVersion: s3.onyxia.sh/v1alpha1
+kind: S3Instance
+metadata:
+  labels:
+    app.kubernetes.io/name: bucket
+    app.kubernetes.io/instance: bucket-sample
+    app.kubernetes.io/part-of: s3-operator
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/created-by: s3-operator
+  name: s3-default-instance                     # Name of the S3Instance
+spec:
+  s3Provider: minio                             # Type of the Provider. Can be "mockedS3Provider" or "minio"
+  url: https://minio.example.com                # URL of the Provider
+  secretRef: minio-credentials                  # Name of the secret containing 2 Keys S3_ACCESS_KEY and S3_SECRET_KEY
+  caCertSecretRef: minio-certs                  # Name of the secret containing key ca.crt with cert of s3provider
+  region: us-east-1                             # Region of the Provider
+  allowedNamespaces: []                         # namespaces allowed to have buckets, policies, ... Wildcard prefix/suffix allowed. If empty only the same namespace as s3instance is allowed
+  bucketDeletionEnabled: true                   # Allowed bucket entity suppression on s3instance                             
+  policyDeletionEnabled: true                   # Allowed policy entity suppression on s3instance          
+  pathDeletionEnabled: true                     # Allowed path entity suppression on s3instance          
+  s3UserDeletionEnabled: true                   # Allowed s3User entity suppression on s3instance          
+```
+
 ### Bucket example
 
 ```yaml
@@ -182,6 +199,10 @@ spec:
   quota:
     default: 10000000    
     # override: 20000000
+  
+  # Optionnal, let empty if you have configured the default s3 else use an existing s3Instance
+  s3InstanceRef: "s3-default-instance"
+  
 
 ```
 
@@ -202,10 +223,13 @@ spec:
   # Policy name (on S3 server, as opposed to the name of the CR)
   name: dummy-policy
 
+  # Optionnal, let empty if you have configured the default s3 else use an existing s3Instance
+  s3InstanceRef: "s3-default-instance"
+
   # Content of the policy, as a multiline string 
   # This should be IAM compliant JSON - follow the guidelines of the actual
   # S3 provider you're using, as sometimes only a subset is available.
-  # The first Statement (Allow ListBucket) should be applied to every user,
+     The first Statement (Allow ListBucket) should be applied to every user,
   # as s3-operator uses this call to verify that credentials are valid when
   # reconciling an existing user.
   policyContent: >-
@@ -257,6 +281,8 @@ spec:
     - /home/alice
     - /home/bob
   
+  # Optionnal, let empty if you have configured the default s3 else use an existing s3Instance
+  s3InstanceRef: "s3-default-instance"
 
 ```
 
@@ -278,10 +304,19 @@ spec:
   policies:
     - policy-example1
     - policy-example2
+  # Optionnal, let empty if you have configured the default s3 else use an existing s3Instance
+  s3InstanceRef: "s3-default-instance"
 
 ```
 
 Each S3user is linked to a kubernetes secret which have the same name that the S3User. The secret contains 2 keys: `accessKey` and `secretKey`.
+
+### :info: How works s3InstanceRef
+
+S3InstanceRef can get the following values:
+- empty: In this case the s3instance use will be the default one configured at startup if the namespace is in the namespace allowed for this s3Instance
+- `s3InstanceName`: In this case the s3Instance use will be the s3Instance with the name `s3InstanceName` in the current namespace (if the current namespace is allowed)
+- `namespace/s3InstanceName`: In this case the s3Instance use will be the s3Instance with the name `s3InstanceName` in the namespace `namespace` (if the current namespace is allowed to use this s3Instance)
 
 ## Operator SDK generated guidelines
 

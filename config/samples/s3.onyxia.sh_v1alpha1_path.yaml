@@ -1,12 +1,6 @@
 apiVersion: s3.onyxia.sh/v1alpha1
 kind: Path
 metadata:
-  labels:
-    app.kubernetes.io/name: path
-    app.kubernetes.io/instance: path-sample
-    app.kubernetes.io/part-of: s3-operator
-    app.kubernetes.io/managed-by: kustomize
-    app.kubernetes.io/created-by: s3-operator
   name: path-sample
 spec:
   # Bucket name (on S3 server, as opposed to the name of the CR)

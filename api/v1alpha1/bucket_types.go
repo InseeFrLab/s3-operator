@@ -36,6 +36,14 @@ type BucketSpec struct {
 	// +kubebuilder:validation:Optional
 	Paths []string `json:"paths,omitempty"`
 
+	// s3InstanceRef where create the bucket
+	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?(/[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?)?$`
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=127
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="s3InstanceRef is immutable"
+	// +kubebuilder:default=s3-operator/default
+	S3InstanceRef string `json:"s3InstanceRef"`
+
 	// Quota to apply to the bucket
 	// +kubebuilder:validation:Required
 	Quota Quota `json:"quota"`
@@ -64,13 +72,9 @@ type Bucket struct {
 
 // BucketList contains a list of Bucket
 type BucketList struct {
-	metav1.TypeMeta `json:",inline"`
-	metav1.ListMeta `json:"metadata,omitempty"`
+	metav1.TypeMeta `         json:",inline"`
+	metav1.ListMeta `         json:"metadata,omitempty"`
 	Items           []Bucket `json:"items"`
-}
-
-func init() {
-	SchemeBuilder.Register(&Bucket{}, &BucketList{})
 }
 
 type Quota struct {
@@ -81,4 +85,8 @@ type Quota struct {
 	// Optional override quota, to be used by cluster admin.
 	// +kubebuilder:validation:Optional
 	Override int64 `json:"override,omitempty"`
+}
+
+func init() {
+	SchemeBuilder.Register(&Bucket{}, &BucketList{})
 }

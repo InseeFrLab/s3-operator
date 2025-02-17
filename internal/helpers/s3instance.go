@@ -97,17 +97,21 @@ func (s3InstanceHelper *S3InstanceHelper) GetS3ClientFromS3Instance(
 		return nil, err
 	}
 
-	s3InstanceCaCertSecret, err := s3InstanceHelper.getS3InstanceCaCertSecret(ctx, client, s3InstanceResource)
-	if err != nil {
-		logger.Error(
-			err,
-			"Could not get s3Instance cert secret in namespace",
-			"s3InstanceSecretRefName",
-			s3InstanceResource.Spec.SecretRef,
-			"NamespacedName",
-			s3InstanceResource.Namespace,
-		)
-		return nil, err
+	var s3InstanceCaCertificates []string
+	if s3InstanceResource.Spec.CaCertSecretRef != "" {
+		s3InstanceCaCertSecret, err := s3InstanceHelper.getS3InstanceCaCertSecret(ctx, client, s3InstanceResource)
+		if err != nil {
+			logger.Error(
+				err,
+				"Could not get s3Instance cert secret in namespace",
+				"s3InstanceSecretRefName",
+				s3InstanceResource.Spec.SecretRef,
+				"NamespacedName",
+				s3InstanceResource.Namespace,
+			)
+			return nil, err
+		}
+		s3InstanceCaCertificates = []string{string(s3InstanceCaCertSecret.Data["ca.crt"])}
 	}
 
 	allowedNamepaces := []string{s3InstanceResource.Namespace}
@@ -122,7 +126,7 @@ func (s3InstanceHelper *S3InstanceHelper) GetS3ClientFromS3Instance(
 		S3Url:                 s3InstanceResource.Spec.Url,
 		Region:                s3InstanceResource.Spec.Region,
 		AllowedNamespaces:     allowedNamepaces,
-		CaCertificatesBase64:  []string{string(s3InstanceCaCertSecret.Data["ca.crt"])},
+		CaCertificatesBase64:  s3InstanceCaCertificates,
 		BucketDeletionEnabled: s3InstanceResource.Spec.BucketDeletionEnabled,
 		S3UserDeletionEnabled: s3InstanceResource.Spec.S3UserDeletionEnabled,
 		PolicyDeletionEnabled: s3InstanceResource.Spec.PolicyDeletionEnabled,

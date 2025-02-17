@@ -20,8 +20,8 @@ import (
 	"fmt"
 
 	s3v1alpha1 "github.com/InseeFrLab/s3-operator/api/v1alpha1"
-	s3client "github.com/InseeFrLab/s3-operator/internal/s3/client"
-	s3factory "github.com/InseeFrLab/s3-operator/internal/s3/factory"
+	s3client "github.com/InseeFrLab/s3-operator/pkg/s3/client"
+	s3factory "github.com/InseeFrLab/s3-operator/pkg/s3/factory"
 	"github.com/InseeFrLab/s3-operator/test/mocks"
 	"github.com/minio/madmin-go/v3"
 	"github.com/stretchr/testify/mock"

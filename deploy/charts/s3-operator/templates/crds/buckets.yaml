@@ -44,6 +44,23 @@ spec:
           spec:
             description: BucketSpec defines the desired state of Bucket
             properties:
+              accessPolicy:
+                description: AccessPolicy to apply to the bucket
+                properties:
+                  policyContent:
+                    description: Content of the policy (IAM JSON format) for Custom
+                      AccessPolicy
+                    type: string
+                  type:
+                    description: type of the AccessPolicy
+                    enum:
+                      - Private
+                      - Public
+                      - Custom
+                    type: string
+                required:
+                  - type
+                type: object
               name:
                 description: Name of the bucket
                 type: string

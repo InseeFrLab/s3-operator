@@ -21,11 +21,11 @@ import (
 	"fmt"
 	"strings"
 
-	s3client "github.com/InseeFrLab/s3-operator/internal/s3/client"
 	corev1 "k8s.io/api/core/v1"
 
 	s3v1alpha1 "github.com/InseeFrLab/s3-operator/api/v1alpha1"
-	s3factory "github.com/InseeFrLab/s3-operator/internal/s3/factory"
+	"github.com/InseeFrLab/s3-operator/pkg/s3/client"
+	"github.com/InseeFrLab/s3-operator/pkg/s3/factory"
 	k8sapierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"

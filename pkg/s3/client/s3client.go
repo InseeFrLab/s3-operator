@@ -17,6 +17,7 @@ limitations under the License.
 package s3client
 
 import (
+	s3model "github.com/InseeFrLab/s3-operator/pkg/s3/model"
 	"github.com/minio/madmin-go/v3"
 )
 
@@ -36,6 +37,8 @@ type S3Config struct {
 
 type S3Client interface {
 	BucketExists(name string) (bool, error)
+	GetBucketAccessPolicy(bucketname string) (*s3model.BucketAccessPolicy, error)
+	SetBucketAccessPolicy(bucketname string, accessPolicyType s3model.BucketAccessPolicyType, accessPolicy string) error
 	CreateBucket(name string) error
 	DeleteBucket(name string) error
 	CreatePath(bucketname string, path string) error

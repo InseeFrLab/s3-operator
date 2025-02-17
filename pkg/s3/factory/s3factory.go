@@ -17,7 +17,7 @@ limitations under the License.
 package s3factory
 
 import (
-	s3client "github.com/InseeFrLab/s3-operator/internal/s3/client"
+	s3client "github.com/InseeFrLab/s3-operator/pkg/s3/client"
 )
 
 type S3Factory interface {

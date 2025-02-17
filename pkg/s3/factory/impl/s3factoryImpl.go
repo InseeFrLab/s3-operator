@@ -19,8 +19,8 @@ package s3factory
 import (
 	"fmt"
 
-	s3client "github.com/InseeFrLab/s3-operator/internal/s3/client"
-	s3clientImpl "github.com/InseeFrLab/s3-operator/internal/s3/client/impl"
+	s3client "github.com/InseeFrLab/s3-operator/pkg/s3/client"
+	s3clientImpl "github.com/InseeFrLab/s3-operator/pkg/s3/client/impl"
 )
 
 type S3Factory struct {

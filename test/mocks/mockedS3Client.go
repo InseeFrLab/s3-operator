@@ -17,7 +17,8 @@ limitations under the License.
 package mocks
 
 import (
-	s3client "github.com/InseeFrLab/s3-operator/internal/s3/client"
+	s3client "github.com/InseeFrLab/s3-operator/pkg/s3/client"
+	s3model "github.com/InseeFrLab/s3-operator/pkg/s3/model"
 	"github.com/minio/madmin-go/v3"
 	"github.com/stretchr/testify/mock"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -67,6 +68,20 @@ func (mockedS3Provider *MockedS3Client) DeletePath(bucketname string, path strin
 	s3Logger := ctrl.Log.WithValues("logger", "mockedS3Client")
 	s3Logger.Info("deleting a path on a bucket", "bucket", bucketname, "path", path)
 	args := mockedS3Provider.Called(bucketname, path)
+	return args.Error(0)
+}
+
+func (mockedS3Provider *MockedS3Client) GetBucketAccessPolicy(bucketname string) (*s3model.BucketAccessPolicy, error) {
+	s3Logger := ctrl.Log.WithValues("logger", "mockedS3Client")
+	s3Logger.Info("getting access policy on a bucket", "bucket", bucketname)
+	args := mockedS3Provider.Called(bucketname)
+	return args.Get(0).(*s3model.BucketAccessPolicy), args.Error(1)
+}
+
+func (mockedS3Provider *MockedS3Client) SetBucketAccessPolicy(bucketname string, accessPolicyType s3model.BucketAccessPolicyType, accessPolicy string) error {
+	s3Logger := ctrl.Log.WithValues("logger", "mockedS3Client")
+	s3Logger.Info("setting an access policy on a bucket", "bucket", bucketname, "policyType", accessPolicyType)
+	args := mockedS3Provider.Called(bucketname, accessPolicyType, accessPolicy)
 	return args.Error(0)
 }
 

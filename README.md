@@ -199,7 +199,37 @@ spec:
   quota:
     default: 10000000    
     # override: 20000000
-  
+
+  # AccessPolicy to set on the bucket
+  # Default to Private.
+  # The type can be "Public", "Private" or "Custom"
+  # Public, anyone can access in rw without authentication.
+  # Private, only authenticated users with policies can access.
+  # Custom, define a policy to apply.
+  # In the example below, everybody can read, but only authenticated users with policy can write.
+  accessPolicy:
+    type: Custom
+    policyContent: |-
+      {
+        "Version": "2012-10-17",
+        "Statement": [
+          {
+            "Effect": "Allow",
+            "Principal": {
+              "AWS": [
+                "*"
+              ]
+            },
+            "Action": [
+              "s3:GetObject"
+            ],
+            "Resource": [
+              "arn:aws:s3:::dummy-bucket/*"
+            ]
+          }
+        ]
+      }
+
   # Optionnal, let empty if you have configured the default s3 else use an existing s3Instance
   s3InstanceRef: "s3-default-instance"
   

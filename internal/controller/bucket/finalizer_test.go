@@ -51,6 +51,7 @@ func TestHandleDelete(t *testing.T) {
 			Name:          "example-bucket",
 			S3InstanceRef: "s3-operator/default",
 			Quota:         s3v1alpha1.Quota{Default: 10},
+			AccessPolicy:  nil,
 		},
 	}
 

@@ -26,7 +26,8 @@ import (
 	neturl "net/url"
 	"strings"
 
-	s3client "github.com/InseeFrLab/s3-operator/internal/s3/client"
+	s3client "github.com/InseeFrLab/s3-operator/pkg/s3/client"
+	s3model "github.com/InseeFrLab/s3-operator/pkg/s3/model"
 	"github.com/minio/madmin-go/v3"
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
@@ -290,6 +291,64 @@ func (minioS3Client *MinioS3Client) DeletePath(bucketname string, path string) e
 			bucketname,
 			"path",
 			path,
+		)
+		return err
+	}
+	return nil
+}
+
+func (minioS3Client *MinioS3Client) GetBucketAccessPolicy(bucketname string) (*s3model.BucketAccessPolicy, error) {
+	s3Logger := ctrl.Log.WithValues("logger", "s3clientimplminio")
+	s3Logger.Info("setting the access policy on bucket", "bucket", bucketname)
+
+	policy, err := minioS3Client.client.GetBucketPolicy(
+		context.Background(),
+		bucketname,
+	)
+	if err != nil {
+		s3Logger.Error(
+			err,
+			"an error occurred when getting the bucket policy",
+			"bucket",
+			bucketname,
+		)
+		return nil, err
+	}
+
+	bucketAccessPolicy, err := s3model.LoadBucketAccessPolicy(bucketname, policy)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load bucket access policy: %v", err)
+	}
+	return bucketAccessPolicy, nil
+}
+
+func (minioS3Client *MinioS3Client) SetBucketAccessPolicy(bucketname string, accessPolicyType s3model.BucketAccessPolicyType, accessPolicy string) error {
+	s3Logger := ctrl.Log.WithValues("logger", "s3clientimplminio")
+	s3Logger.Info("setting the access policy on bucket", "bucket", bucketname, "policyType", accessPolicyType)
+
+	bucketAccessPolicy, err := s3model.NewBucketAccessPolicy(bucketname, accessPolicyType, accessPolicy)
+	if err != nil {
+		return fmt.Errorf("failed to create bucket access policy object: %v", err)
+	}
+
+	jsonContent, err := bucketAccessPolicy.Content.JSON()
+	if err != nil {
+		return fmt.Errorf("failed to marshal bucket access policy object: %v", err)
+	}
+
+	err = minioS3Client.client.SetBucketPolicy(
+		context.Background(),
+		bucketname,
+		string(jsonContent),
+	)
+	if err != nil {
+		s3Logger.Error(
+			err,
+			"an error occurred during path deletion on bucket",
+			"bucket",
+			bucketname,
+			"policyType",
+			accessPolicyType,
 		)
 		return err
 	}

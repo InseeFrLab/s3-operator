@@ -38,7 +38,7 @@ s3:
     url: "https://localhost:9000"
     accessKey: "accessKey"
     secretKey: "secretKey"
-    caCertificatesBase64: base64encodedPEMFormatCACertificate
+    # caCertificatesBase64: ""
     region: us-east-1
     # secretRef: "my-s3-operator-auth-secret"
     # caCertSecretRef: "my-s3-operator-cert-secret"

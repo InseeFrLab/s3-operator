@@ -74,7 +74,7 @@ func generateMinioClient(
 	caCertificates []string,
 ) (*minio.Client, error) {
 	s3Logger := ctrl.Log.WithValues("logger", "s3clientimplminio")
-	hostname, isSSL, err := extractHostAndScheme(url)
+	endpoint, isSSL, err := constructEndpointFromURL(url)
 	if err != nil {
 		s3Logger.Error(err, "an error occurred while creating a new minio client")
 		return nil, err
@@ -90,7 +90,7 @@ func generateMinioClient(
 		addTlsClientConfigToMinioOptions(caCertificates, minioOptions)
 	}
 
-	minioClient, err := minio.New(hostname, minioOptions)
+	minioClient, err := minio.New(endpoint, minioOptions)
 	if err != nil {
 		s3Logger.Error(err, "an error occurred while creating a new minio client")
 		return nil, err
@@ -105,7 +105,7 @@ func generateAdminMinioClient(
 	caCertificates []string,
 ) (*madmin.AdminClient, error) {
 	s3Logger := ctrl.Log.WithValues("logger", "s3clientimplminio")
-	hostname, isSSL, err := extractHostAndScheme(url)
+	endpoint, isSSL, err := constructEndpointFromURL(url)
 	if err != nil {
 		s3Logger.Error(err, "an error occurred while creating a new minio admin client")
 		return nil, err
@@ -120,7 +120,7 @@ func generateAdminMinioClient(
 		addTlsClientConfigToMinioAdminOptions(caCertificates, minioOptions)
 	}
 
-	minioAdminClient, err := madmin.NewWithOptions(hostname, minioOptions)
+	minioAdminClient, err := madmin.NewWithOptions(endpoint, minioOptions)
 	if err != nil {
 		s3Logger.Error(err, "an error occurred while creating a new minio admin client")
 		return nil, err
@@ -129,12 +129,19 @@ func generateAdminMinioClient(
 	return minioAdminClient, nil
 }
 
-func extractHostAndScheme(url string) (string, bool, error) {
+func constructEndpointFromURL(url string) (string, bool, error) {
 	parsedURL, err := neturl.Parse(url)
 	if err != nil {
 		return "", false, fmt.Errorf("cannot detect if url use ssl or not")
 	}
-	return parsedURL.Hostname(), parsedURL.Scheme == "https", nil
+
+	var endpoint = parsedURL.Hostname()
+	if !((parsedURL.Scheme == "https" && parsedURL.Port() == "443") ||
+		(parsedURL.Scheme == "http" && parsedURL.Port() == "80")) {
+		endpoint = fmt.Sprintf("%s:%s", endpoint, parsedURL.Port())
+	}
+
+	return endpoint, parsedURL.Scheme == "https", nil
 }
 
 func addTlsClientConfigToMinioOptions(caCertificates []string, minioOptions *minio.Options) {

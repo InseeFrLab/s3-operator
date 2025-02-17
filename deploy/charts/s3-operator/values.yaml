@@ -45,7 +45,7 @@ s3:
     # allowedNamespaces: ""
     # Should the operator try to delete the resource from the S3 backend upon CR deletion ?
     deletion:
-      bucket: false
+      bucket: true
       path: false
       policy: false
       s3user: false

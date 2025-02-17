@@ -3,53 +3,75 @@ name: Helm CI
 on:
   push:
     branches:
-      - "**"
-    paths-ignore:
-      - 'docs/**'
-    tags:
-      - "*"
+      - main
+      - release-*
+    paths:
+      - "deploy/charts/**"
   pull_request:
-    paths-ignore:
-      - 'docs/**'
+    paths:
+      - "deploy/charts/**"
 
 jobs:
-
-  helm-lint:
+  helm-lint-test:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
 
-      - name: Install Helm on Runner
+      - name: Set up Helm
         uses: azure/setup-helm@v4.2.0
+        with:
+          version: v3.17.0
 
-      - name: Lint Chart
-        run: helm lint .
-  
-  helm-unitest:
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/setup-python@v5.3.0
+        with:
+          python-version: "3.x"
+          check-latest: true
 
-      - name: Install Helm on Runner
-        uses: azure/setup-helm@v4.2.0
+      - name: Set up chart-testing
+        uses: helm/chart-testing-action@v2.7.0
 
-      - name: Lint Chart
-        run: echo "TODO"
+      - name: Run chart-testing (list-changed)
+        id: list-changed
+        run: |
+          changed=$(ct list-changed --target-branch ${{ github.event.repository.default_branch }})
+          if [[ -n "$changed" ]]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run chart-testing (lint)
+        if: steps.list-changed.outputs.changed == 'true'
+        run: ct lint --config=.github/ci/ct.yaml --target-branch ${{ github.event.repository.default_branch }}
+
+      - name: Create kind cluster
+        if: steps.list-changed.outputs.changed == 'true'
+        uses: helm/kind-action@v1.12.0
+
+      - name: Run chart-testing (install)
+        if: steps.list-changed.outputs.changed == 'true'
+        run: ct install --config=.github/ci/ct.yaml --target-branch ${{ github.event.repository.default_branch }}
 
   release_helm:
     runs-on: ubuntu-latest
+    if: |
+      github.ref == 'refs/heads/main' ||
+      startsWith(github.ref, 'refs/heads/release-')
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Install Helm on Runner
-        uses: azure/setup-helm@v4.2.0
+        with:
+          fetch-depth: 0
 
       - name: Configure Git
         run: |
           git config user.name "$GITHUB_ACTOR"
           git config user.email "$GITHUB_ACTOR@users.noreply.github.com"
+
+      - name: Install Helm on Runner
+        uses: azure/setup-helm@v4.2.0
+
 
       - name: Run chart-releaser
         uses: helm/chart-releaser-action@v1.6.0
@@ -57,4 +79,5 @@ jobs:
           charts_dir: deploy/charts
           skip_existing: true
         env:
-          CR_TOKEN: "${{ secrets.CR_TOKEN }}"
+          CR_RELEASE_NAME_TEMPLATE: "helm-chart-{{ .Version }}"
+          CR_TOKEN: "${{ secrets.GITHUB_TOKEN }}"

@@ -10,15 +10,15 @@ on:
         required: true
         default: "main"
       pre_release:
-        description: "source ref to publish from. E.g.: main or release-x.y"
+        description: "Is release a pre-release ? "
         required: true
         default: false
 
-name: Upload Release Asset
+name: Make release
 
 jobs:
   release:
-    name: Upload Release Asset
+    name: Make release
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code

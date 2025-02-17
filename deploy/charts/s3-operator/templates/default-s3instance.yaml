@@ -54,7 +54,7 @@ metadata:
     {{- include "s3-operator.labels" . | nindent 4 }}
   name: default-s3instance-credentials
 type: Opaque
-data:
+stringData:
   S3_ACCESS_KEY: {{ .Values.s3.default.accessKey }}
   S3_SECRET_KEY: {{ .Values.s3.default.secretKey }}
 {{- end }}

@@ -28,7 +28,10 @@ spec:
   caCertSecretRef: {{ .Values.s3.default.caCertSecretRef }}
   {{- end }}
   {{- if .Values.s3.default.allowedNamespaces }}
-  allowedNamespaces: {{ .Values.s3.default.allowedNamespaces }}
+  allowedNamespaces:
+    {{- range .Values.s3.default.allowedNamespaces }}
+    - {{ . | quote }}
+    {{- end }}
   {{- end }}
   {{- if .Values.s3.default.region }}
   region: {{ .Values.s3.default.region }}

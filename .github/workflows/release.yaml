@@ -1,40 +1,35 @@
 on:
-  push:
-    # Sequence of patterns matched against refs/tags
-    tags:
-    - 'v*' # Push events to matching v*, i.e. v1.0, v20.15.10
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "version to release, e.g. v1.5.13"
+        required: true
+        default: "v0.1.0"
+      source_ref:
+        description: "source ref to publish from. E.g.: main or release-x.y"
+        required: true
+        default: "main"
+      pre_release:
+        description: "source ref to publish from. E.g.: main or release-x.y"
+        required: true
+        default: false
 
 name: Upload Release Asset
 
 jobs:
-  upload-release-assets:
+  release:
     name: Upload Release Asset
-    needs: build-go
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-      - name: Download a single artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: manager
       - name: Create Release
         id: create_release
         uses: actions/create-release@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tag_name: ${{ github.ref }}
-          release_name: Release ${{ github.ref }}
+          tag_name: ${{ github.event.inputs.source_ref }}
+          release_name: Release ${{ github.event.inputs.version }}
           draft: false
-          prerelease: false
-      - name: Upload Release Asset
-        id: upload-release-asset 
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }} # This pulls from the CREATE RELEASE step above, referencing it's ID to get its outputs object, which include a `upload_url`. See this blog post for more info: https://jasonet.co/posts/new-features-of-github-actions/#passing-data-to-future-steps 
-          asset_path: bin/manager
-          asset_name: s3-operator
-          asset_content_type: application/x-executable
+          prerelease: ${{ github.event.inputs.source_ref }}

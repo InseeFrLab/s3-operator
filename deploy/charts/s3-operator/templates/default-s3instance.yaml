@@ -1,4 +1,10 @@
 {{- if .Values.s3.default.enabled -}}
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: s3-operator
+---
 apiVersion: s3.onyxia.sh/v1alpha1
 kind: S3Instance
 metadata:
@@ -9,6 +15,7 @@ metadata:
     control-plane: controller-manager
     {{- include "s3-operator.labels" . | nindent 4 }}
   name: default
+  namespace: s3-operator
 spec:
   s3Provider: {{ .Values.s3.default.s3Provider }}
   url: {{ .Values.s3.default.url }}

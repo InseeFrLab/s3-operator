@@ -1,4 +1,10 @@
 {{- if .Values.s3.default.enabled -}}
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: s3-operator
+---
 apiVersion: s3.onyxia.sh/v1alpha1
 kind: S3Instance
 metadata:
@@ -9,6 +15,7 @@ metadata:
     control-plane: controller-manager
     {{- include "s3-operator.labels" . | nindent 4 }}
   name: default
+  namespace: s3-operator
 spec:
   s3Provider: {{ .Values.s3.default.s3Provider }}
   url: {{ .Values.s3.default.url }}
@@ -19,11 +26,12 @@ spec:
   {{- end }}
   {{- if .Values.s3.default.caCertSecretRef }}
   caCertSecretRef: {{ .Values.s3.default.caCertSecretRef }}
-  {{- else }}
-  caCertSecretRef: default-s3instance-certificates
   {{- end }}
   {{- if .Values.s3.default.allowedNamespaces }}
-  allowedNamespaces: {{ .Values.s3.default.allowedNamespaces }}
+  allowedNamespaces:
+    {{- range .Values.s3.default.allowedNamespaces }}
+    - {{ . | quote }}
+    {{- end }}
   {{- end }}
   {{- if .Values.s3.default.region }}
   region: {{ .Values.s3.default.region }}
@@ -46,11 +54,15 @@ metadata:
     {{- include "s3-operator.labels" . | nindent 4 }}
   name: default-s3instance-credentials
 type: Opaque
-data:
-  S3_ACCESS_KEY: {{- .Values.s3.default.accessKey }}
-  S3_SECRET_KEY: {{- .Values.s3.default.secretKey }}
+stringData:
+  S3_ACCESS_KEY: {{ .Values.s3.default.accessKey }}
+  S3_SECRET_KEY: {{ .Values.s3.default.secretKey }}
 {{- end }}
-{{- if not .Values.s3.default.caCertSecretRef }}
+
+{{- /*
+The secret is created when the User doesn't have set a caCertSecretRef, but filled caCertificatesBase64.
+*/}}
+{{- if and (not .Values.s3.default.caCertSecretRef) .Values.s3.default.caCertificatesBase64 }}
 ---
 apiVersion: v1
 kind: Secret
@@ -64,6 +76,6 @@ metadata:
   name: default-s3instance-certificates
 type: Opaque
 data:
-  ca.crt: {{- .Values.s3.default.caCertificatesBase64 }}
+  ca.crt: {{ .Values.s3.default.caCertificatesBase64 }}
 {{- end }}
 {{- end -}}

@@ -17,6 +17,7 @@ limitations under the License.
 package user_controller
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"slices"
@@ -247,11 +248,11 @@ func (r *S3UserReconciler) handleUpdate(
 		)
 	}
 
-	err = r.deleteOldLinkedSecret(ctx, userResource)
+	userOwnedlinkedSecrets, err := r.getUserLinkedSecrets(ctx, userResource)
 	if err != nil {
 		logger.Error(
 			err,
-			"An error occurred when trying to clean old secret linked to user",
+			"An error occurred while listing the user's secret",
 			"userResourceName",
 			userResource.Name,
 			"NamespacedName",
@@ -262,94 +263,14 @@ func (r *S3UserReconciler) handleUpdate(
 			req,
 			userResource,
 			s3v1alpha1.Unreachable,
-			"Deletion of old secret associated to user have failed",
+			"Impossible to list the user's secret",
 			err,
 		)
 	}
-
-	userOwnedSecret, err := r.getUserSecret(ctx, userResource)
-	if err != nil {
-		if err.Error() == "SecretListingFailed" {
-			logger.Error(
-				err,
-				"An error occurred when trying to obtain the user's secret",
-				"userResourceName",
-				userResource.Name,
-				"NamespacedName",
-				req.NamespacedName.String(),
-			)
-
-			err = r.deleteSecret(ctx, &userOwnedSecret)
-			if err != nil {
-				logger.Error(
-					err,
-					"Deletion of secret associated to user have failed",
-					"userResource",
-					userResource.Name,
-					"userResourceName",
-					userResource.Name,
-					"NamespacedName",
-					req.NamespacedName.String(),
-				)
-				return r.SetReconciledCondition(
-					ctx,
-					req,
-					userResource,
-					s3v1alpha1.Unreachable,
-					"Deletion of secret associated to user have failed",
-					err,
-				)
-
-			}
-			err = s3Client.DeleteUser(userResource.Spec.AccessKey)
-			if err != nil {
-				logger.Error(err, "Could not delete user on S3 server", "userResource",
-					userResource.Name,
-					"userResourceName",
-					userResource.Name,
-					"NamespacedName",
-					req.NamespacedName.String())
-				return r.SetReconciledCondition(
-					ctx,
-					req,
-					userResource,
-					s3v1alpha1.Unreachable,
-					fmt.Sprintf(
-						"Deletion of S3user %s on S3 server has failed",
-						userResource.Name,
-					),
-					err,
-				)
-
-			}
-			return r.handleCreate(ctx, req, userResource)
-		} else if err.Error() == "S3UserSecretNameMismatch" {
-			logger.Info("A secret with owner reference to the user was found, but its name doesn't match the spec. This is probably due to the S3User's spec changing (specifically spec.secretName being added, changed or removed). The \"old\" secret will be deleted.", "userResource",
-				userResource.Name,
-				"NamespacedName",
-				req.NamespacedName.String())
-			err = r.deleteSecret(ctx, &userOwnedSecret)
-			if err != nil {
-				logger.Error(err, "Deletion of secret associated to user have failed", "userResourceName",
-					userResource.Name,
-					"NamespacedName",
-					req.NamespacedName.String())
-				return r.SetReconciledCondition(
-					ctx,
-					req,
-					userResource,
-					s3v1alpha1.Unreachable,
-					"Deletion of secret associated to user have failed",
-					err,
-				)
-
-			}
-		}
-	}
-
-	if userOwnedSecret.Name == "" {
+	currentUserSecret := corev1.Secret{}
+	if len(userOwnedlinkedSecrets) == 0 {
 		logger.Info(
-			"Secret associated to user not found, user will be deleted from the S3 backend, then recreated with a secret",
+			"No Secret associated to user found, user will be deleted from the S3 backend, then recreated with a secret",
 			"userResourceName",
 			userResource.Name,
 			"NamespacedName",
@@ -377,6 +298,57 @@ func (r *S3UserReconciler) handleUpdate(
 			)
 		}
 		return r.handleCreate(ctx, req, userResource)
+	} else {
+		foundSecret := false
+		for _, linkedsecret := range userOwnedlinkedSecrets {
+			if linkedsecret.Name != cmp.Or(userResource.Spec.SecretName, userResource.Name) {
+				if err := r.deleteSecret(ctx, &linkedsecret); err != nil {
+					logger.Info("Failed to delete unused secret", "secretName", linkedsecret.Name)
+					return r.SetReconciledCondition(
+						ctx,
+						req,
+						userResource,
+						s3v1alpha1.Unreachable,
+						"Failed to delete old linkedSecret",
+						err,
+					)
+				}
+			} else {
+				foundSecret = true
+				currentUserSecret = linkedsecret
+			}
+		}
+		if !foundSecret {
+			logger.Info(
+				"No Secret associated to user found, user will be deleted from the S3 backend, then recreated with a secret",
+				"userResourceName",
+				userResource.Name,
+				"NamespacedName",
+				req.NamespacedName.String(),
+			)
+
+			err = s3Client.DeleteUser(userResource.Spec.AccessKey)
+			if err != nil {
+				logger.Error(err, "Could not delete user on S3 server", "userResource",
+					userResource.Name,
+					"userResourceName",
+					userResource.Name,
+					"NamespacedName",
+					req.NamespacedName.String())
+				return r.SetReconciledCondition(
+					ctx,
+					req,
+					userResource,
+					s3v1alpha1.Unreachable,
+					fmt.Sprintf(
+						"Deletion of S3user %s on S3 server has failed",
+						userResource.Name,
+					),
+					err,
+				)
+			}
+			return r.handleCreate(ctx, req, userResource)
+		}
 	}
 
 	logger.Info("Checking user policies", "userResource",
@@ -477,8 +449,8 @@ func (r *S3UserReconciler) handleUpdate(
 
 	credentialsValid, err := s3Client.CheckUserCredentialsValid(
 		userResource.Name,
-		string(userOwnedSecret.Data[userResource.Spec.SecretFieldNameAccessKey]),
-		string(userOwnedSecret.Data[userResource.Spec.SecretFieldNameSecretKey]),
+		string(currentUserSecret.Data[userResource.Spec.SecretFieldNameAccessKey]),
+		string(currentUserSecret.Data[userResource.Spec.SecretFieldNameSecretKey]),
 	)
 
 	if err != nil {
@@ -508,7 +480,7 @@ func (r *S3UserReconciler) handleUpdate(
 			"NamespacedName",
 			req.NamespacedName.String(),
 		)
-		err = r.deleteSecret(ctx, &userOwnedSecret)
+		err = r.deleteSecret(ctx, &currentUserSecret)
 		if err != nil {
 			logger.Error(err, "Deletion of secret associated to user have failed", "userResource",
 				userResource.Name,

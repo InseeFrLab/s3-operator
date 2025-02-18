@@ -78,11 +78,11 @@ func (r *S3UserReconciler) handleDeletion(
 			)
 		}
 
-		err := r.deleteOldLinkedSecret(ctx, userResource)
+		userOwnedlinkedSecrets, err := r.getUserLinkedSecrets(ctx, userResource)
 		if err != nil {
 			logger.Error(
 				err,
-				"An error occurred when trying to clean old secret linked to user",
+				"An error occurred when trying to list secret linked to user",
 				"userResourceName",
 				userResource.Name,
 				"NamespacedName",
@@ -93,29 +93,32 @@ func (r *S3UserReconciler) handleDeletion(
 				req,
 				userResource,
 				s3v1alpha1.DeletionFailure,
-				"Deletion of old secret associated to user have failed",
+				"An error occurred when trying to list secret linked to user",
 				err,
 			)
 		}
+		for _, linkedSecret := range userOwnedlinkedSecrets {
+			if err := r.deleteSecret(ctx, &linkedSecret); err != nil {
+				logger.Error(
+					err,
+					"An error occurred when trying to list secret linked to user",
+					"userResourceName",
+					userResource.Name,
+					"NamespacedName",
+					req.NamespacedName.String(),
+					"secretName",
+					linkedSecret.Name,
+				)
+				return r.SetReconciledCondition(
+					ctx,
+					req,
+					userResource,
+					s3v1alpha1.DeletionFailure,
+					"Deletion of secret associated to user have failed",
+					err,
+				)
+			}
 
-		userOwnedSecret, _ := r.getUserSecret(ctx, userResource)
-		if err := r.deleteSecret(ctx, &userOwnedSecret); err != nil {
-			logger.Error(
-				err,
-				"An error occurred when trying to clean secret linked to user",
-				"userResourceName",
-				userResource.Name,
-				"NamespacedName",
-				req.NamespacedName.String(),
-			)
-			return r.SetReconciledCondition(
-				ctx,
-				req,
-				userResource,
-				s3v1alpha1.DeletionFailure,
-				"Deletion of secret associated to user have failed",
-				err,
-			)
 		}
 
 		//Remove userFinalizer. Once all finalizers have been removed, the object will be deleted.

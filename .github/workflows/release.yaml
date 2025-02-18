@@ -13,6 +13,7 @@ on:
         description: "Is release a pre-release ? "
         required: true
         default: false
+        type: boolean
 
 name: Make release
 
@@ -21,7 +22,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       id-token: write
-      contents: read
+      contents: write
       repository-projects: write
     steps:
       - name: Checkout
@@ -55,7 +56,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tag_name: ${{ github.event.inputs.source_ref }}
+          tag_name: ${{ github.event.inputs.version }}
           release_name: Release ${{ github.event.inputs.version }}
           draft: false
-          prerelease: ${{ github.event.inputs.source_ref }}
+          prerelease: ${{ github.event.inputs.pre_release }}

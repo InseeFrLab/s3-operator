@@ -21,15 +21,12 @@ import (
 	"context"
 	"fmt"
 
+	s3v1alpha1 "github.com/InseeFrLab/s3-operator/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
-	k8sapierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
-
-	s3v1alpha1 "github.com/InseeFrLab/s3-operator/api/v1alpha1"
 )
 
 func (r *S3UserReconciler) addPoliciesToUser(
@@ -65,69 +62,46 @@ func (r *S3UserReconciler) addPoliciesToUser(
 	return nil
 }
 
-func (r *S3UserReconciler) deleteOldLinkedSecret(ctx context.Context, userResource *s3v1alpha1.S3User) error {
+func (r *S3UserReconciler) getUserLinkedSecrets(
+	ctx context.Context,
+	userResource *s3v1alpha1.S3User,
+) ([]corev1.Secret, error) {
 	logger := log.FromContext(ctx)
+
+	// Listing every secrets in the S3User's namespace, as a first step
+	// to get the actual secret matching the S3User proper.
+	// TODO : proper label matching ?
 	secretsList := &corev1.SecretList{}
 
-	// Define options with label selector and namespace
-	listOpts := []client.ListOption{
-		client.InNamespace(userResource.Namespace),                           // Filter by namespace
-		client.MatchingLabels{"app.kubernetes.io/created-by": "s3-operator"}, // Filter by label
+	userSecretList := []corev1.Secret{}
+
+	err := r.List(ctx, secretsList, client.InNamespace(userResource.Namespace))
+	if err != nil {
+		logger.Error(err, "An error occurred while listing the secrets in user's namespace")
+		return userSecretList, fmt.Errorf("SecretListingFailed")
 	}
 
-	// List Secrets with the specified label in the given namespace
-	if err := r.List(ctx, secretsList, listOpts...); err != nil {
-		return fmt.Errorf("failed to list secrets in namespace %s: %w", userResource.Namespace, err)
+	if len(secretsList.Items) == 0 {
+		logger.Info("The user's namespace doesn't appear to contain any secret")
+		return userSecretList, nil
 	}
+	// In all the secrets inside the S3User's namespace, one should have an owner reference
+	// pointing to the S3User. For that specific secret, we check if its name matches the one from
+	// the S3User, whether explicit (userResource.Spec.SecretName) or implicit (userResource.Name)
+	// In case of mismatch, that secret is deleted (and will be recreated) ; if there is a match,
+	// it will be used for state comparison.
+	uid := userResource.GetUID()
 
+	// cmp.Or takes the first non "zero" value, see https://pkg.go.dev/cmp#Or
 	for _, secret := range secretsList.Items {
 		for _, ref := range secret.OwnerReferences {
-			if ref.UID == userResource.GetUID() {
-				if (userResource.Spec.SecretName != "" && secret.Name != userResource.Spec.SecretName) || (userResource.Spec.SecretName == "" && secret.Name != userResource.Name) {
-					if err := r.deleteSecret(ctx, &secret); err != nil {
-						logger.Info("Failed to delete unused secret", "secret", secret.Name)
-						return fmt.Errorf("failed to delete unused secret %s, err %w", secret.Name, err)
-					}
-				}
+			if ref.UID == uid {
+				userSecretList = append(userSecretList, secret)
 			}
 		}
 	}
 
-	return nil
-}
-
-func (r *S3UserReconciler) getUserSecret(
-	ctx context.Context,
-	userResource *s3v1alpha1.S3User,
-) (corev1.Secret, error) {
-	userSecret := &corev1.Secret{}
-	secretName := userResource.Spec.SecretName
-	if secretName == "" {
-		secretName = userResource.Name
-	}
-	err := r.Get(
-		ctx,
-		types.NamespacedName{Namespace: userResource.Namespace, Name: secretName},
-		userSecret,
-	)
-	if err != nil {
-		if k8sapierrors.IsNotFound(err) {
-			return *userSecret, fmt.Errorf(
-				"secret %s not found in namespace %s",
-				secretName,
-				userResource.Namespace,
-			)
-		}
-		return *userSecret, err
-	}
-
-	for _, ref := range userSecret.OwnerReferences {
-		if ref.UID == userResource.GetUID() {
-			return *userSecret, nil
-		}
-	}
-
-	return *userSecret, err
+	return userSecretList, nil
 }
 
 func (r *S3UserReconciler) deleteSecret(ctx context.Context, secret *corev1.Secret) error {

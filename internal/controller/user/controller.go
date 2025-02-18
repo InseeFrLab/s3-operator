@@ -20,7 +20,7 @@ import (
 	"time"
 
 	"github.com/InseeFrLab/s3-operator/internal/helpers"
-	s3factory "github.com/InseeFrLab/s3-operator/internal/s3/factory"
+	s3factory "github.com/InseeFrLab/s3-operator/pkg/s3/factory"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"

@@ -19,9 +19,8 @@ package bucket_controller
 import (
 	"context"
 	"fmt"
-
 	s3v1alpha1 "github.com/InseeFrLab/s3-operator/api/v1alpha1"
-
+	s3model "github.com/InseeFrLab/s3-operator/pkg/s3/model"
 	k8sapierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -362,6 +361,93 @@ func (r *BucketReconciler) handleUpdate(
 		}
 	}
 
+	// Doing nothing if the bucket manifest have no access policy defined
+	if bucketResource.Spec.AccessPolicy != nil {
+		accessPolicyCfg := bucketResource.Spec.AccessPolicy
+
+		// getting current access policy to check if the policy is the same as configure or not
+		currentBucketAccessPolicy, err := s3Client.GetBucketAccessPolicy(bucketResource.Spec.Name)
+		if err != nil {
+			logger.Error(
+				err,
+				"An error occurred while getting the access policy for bucket ressource",
+				"policyType",
+				accessPolicyCfg.Type,
+				"bucketName",
+				bucketResource.Spec.Name,
+				"NamespacedName",
+				req.NamespacedName.String(),
+			)
+			return r.SetReconciledCondition(
+				ctx,
+				req,
+				bucketResource,
+				s3v1alpha1.Unreachable,
+				fmt.Sprintf(
+					"Getting the current access policy of bucket [%s] has failed",
+					bucketResource.Spec.Name,
+				),
+				err,
+			)
+		}
+
+		wantedBucketAccessPolicy, err := s3model.NewBucketAccessPolicy(bucketResource.Spec.Name, accessPolicyCfg.Type, accessPolicyCfg.PolicyContent)
+		if err != nil {
+			logger.Error(
+				err,
+				"An error occurred while init the access policy to configure for bucket ressource",
+				"policyType",
+				accessPolicyCfg.Type,
+				"bucketName",
+				bucketResource.Spec.Name,
+				"NamespacedName",
+				req.NamespacedName.String(),
+			)
+			return r.SetReconciledCondition(
+				ctx,
+				req,
+				bucketResource,
+				s3v1alpha1.Unreachable,
+				fmt.Sprintf(
+					"Setting an access policy of type [%s] on bucket [%s] has failed",
+					accessPolicyCfg.Type,
+					bucketResource.Spec.Name,
+				),
+				err,
+			)
+		}
+
+		// check if policy content are equals
+		if !currentBucketAccessPolicy.Equal(wantedBucketAccessPolicy) {
+			// policies are not equal, update required
+			err = s3Client.SetBucketAccessPolicy(bucketResource.Spec.Name, accessPolicyCfg.Type, accessPolicyCfg.PolicyContent)
+			if err != nil {
+				logger.Error(
+					err,
+					"An error occurred while setting the access policy for bucket ressource",
+					"policyType",
+					accessPolicyCfg.Type,
+					"bucketName",
+					bucketResource.Spec.Name,
+					"NamespacedName",
+					req.NamespacedName.String(),
+				)
+				return r.SetReconciledCondition(
+					ctx,
+					req,
+					bucketResource,
+					s3v1alpha1.Unreachable,
+					fmt.Sprintf(
+						"Setting an access policy of type [%s] on bucket [%s] has failed",
+						accessPolicyCfg.Type,
+						bucketResource.Spec.Name,
+					),
+					err,
+				)
+			}
+		}
+	}
+
 	return r.SetReconciledCondition(
 		ctx,
 		req,
@@ -472,6 +558,35 @@ func (r *BucketReconciler) handleCreation(
 				bucketResource,
 				s3v1alpha1.Unreachable,
 				fmt.Sprintf("Creation for path [%s] in bucket has failed", pathInCr),
+				err,
+			)
+		}
+	}
+
+	// Set accessPolicy
+	if bucketResource.Spec.AccessPolicy != nil {
+		err = s3Client.SetBucketAccessPolicy(bucketResource.Spec.Name, bucketResource.Spec.AccessPolicy.Type, bucketResource.Spec.AccessPolicy.PolicyContent)
+		if err != nil {
+			logger.Error(
+				err,
+				"An error occurred while setting the access policy for bucket ressource",
+				"policyType",
+				bucketResource.Spec.AccessPolicy.Type,
+				"bucketName",
+				bucketResource.Spec.Name,
+				"NamespacedName",
+				req.NamespacedName.String(),
+			)
+			return r.SetReconciledCondition(
+				ctx,
+				req,
+				bucketResource,
+				s3v1alpha1.Unreachable,
+				fmt.Sprintf(
+					"Setting an access policy of type [%s] on bucket [%s] has failed",
+					bucketResource.Spec.AccessPolicy.Type,
+					bucketResource.Spec.Name,
+				),
 				err,
 			)
 		}

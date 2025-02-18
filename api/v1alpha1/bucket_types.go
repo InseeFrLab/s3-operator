@@ -17,6 +17,7 @@ limitations under the License.
 package v1alpha1
 
 import (
+	s3model "github.com/InseeFrLab/s3-operator/pkg/s3/model"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -47,6 +48,10 @@ type BucketSpec struct {
 	// Quota to apply to the bucket
 	// +kubebuilder:validation:Required
 	Quota Quota `json:"quota"`
+
+	// AccessPolicy to apply to the bucket
+	// +kubebuilder:validation:Optional
+	AccessPolicy *AccessPolicy `json:"accessPolicy,omitempty"`
 }
 
 // BucketStatus defines the observed state of Bucket
@@ -85,6 +90,18 @@ type Quota struct {
 	// Optional override quota, to be used by cluster admin.
 	// +kubebuilder:validation:Optional
 	Override int64 `json:"override,omitempty"`
+}
+
+type AccessPolicy struct {
+	// type of the AccessPolicy
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:Default=Private
+	// +kubebuilder:validation:Enum=Private;Public;Custom
+	Type s3model.BucketAccessPolicyType `json:"type"`
+
+	// Content of the policy (IAM JSON format) for Custom AccessPolicy
+	// +kubebuilder:validation:Optional
+	PolicyContent string `json:"policyContent,omitempty"`
 }
 
 func init() {

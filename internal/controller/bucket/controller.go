@@ -23,7 +23,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 
 	"github.com/InseeFrLab/s3-operator/internal/helpers"
-	s3factory "github.com/InseeFrLab/s3-operator/internal/s3/factory"
+	s3factory "github.com/InseeFrLab/s3-operator/pkg/s3/factory"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"

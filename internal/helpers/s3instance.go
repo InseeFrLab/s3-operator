@@ -21,11 +21,11 @@ import (
 	"fmt"
 	"strings"
 
-	s3client "github.com/InseeFrLab/s3-operator/internal/s3/client"
 	corev1 "k8s.io/api/core/v1"
 
 	s3v1alpha1 "github.com/InseeFrLab/s3-operator/api/v1alpha1"
-	s3factory "github.com/InseeFrLab/s3-operator/internal/s3/factory"
+	"github.com/InseeFrLab/s3-operator/pkg/s3/client"
+	"github.com/InseeFrLab/s3-operator/pkg/s3/factory"
 	k8sapierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -97,17 +97,21 @@ func (s3InstanceHelper *S3InstanceHelper) GetS3ClientFromS3Instance(
 		return nil, err
 	}
 
-	s3InstanceCaCertSecret, err := s3InstanceHelper.getS3InstanceCaCertSecret(ctx, client, s3InstanceResource)
-	if err != nil {
-		logger.Error(
-			err,
-			"Could not get s3Instance cert secret in namespace",
-			"s3InstanceSecretRefName",
-			s3InstanceResource.Spec.SecretRef,
-			"NamespacedName",
-			s3InstanceResource.Namespace,
-		)
-		return nil, err
+	var s3InstanceCaCertificates []string
+	if s3InstanceResource.Spec.CaCertSecretRef != "" {
+		s3InstanceCaCertSecret, err := s3InstanceHelper.getS3InstanceCaCertSecret(ctx, client, s3InstanceResource)
+		if err != nil {
+			logger.Error(
+				err,
+				"Could not get s3Instance cert secret in namespace",
+				"s3InstanceSecretRefName",
+				s3InstanceResource.Spec.SecretRef,
+				"NamespacedName",
+				s3InstanceResource.Namespace,
+			)
+			return nil, err
+		}
+		s3InstanceCaCertificates = []string{string(s3InstanceCaCertSecret.Data["ca.crt"])}
 	}
 
 	allowedNamepaces := []string{s3InstanceResource.Namespace}
@@ -122,7 +126,7 @@ func (s3InstanceHelper *S3InstanceHelper) GetS3ClientFromS3Instance(
 		S3Url:                 s3InstanceResource.Spec.Url,
 		Region:                s3InstanceResource.Spec.Region,
 		AllowedNamespaces:     allowedNamepaces,
-		CaCertificatesBase64:  []string{string(s3InstanceCaCertSecret.Data["ca.crt"])},
+		CaCertificatesBase64:  s3InstanceCaCertificates,
 		BucketDeletionEnabled: s3InstanceResource.Spec.BucketDeletionEnabled,
 		S3UserDeletionEnabled: s3InstanceResource.Spec.S3UserDeletionEnabled,
 		PolicyDeletionEnabled: s3InstanceResource.Spec.PolicyDeletionEnabled,

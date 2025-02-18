@@ -19,7 +19,7 @@ package mocks
 import (
 	"github.com/stretchr/testify/mock"
 
-	s3client "github.com/InseeFrLab/s3-operator/internal/s3/client"
+	s3client "github.com/InseeFrLab/s3-operator/pkg/s3/client"
 )
 
 // Mocked Factory

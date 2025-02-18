@@ -17,7 +17,8 @@ limitations under the License.
 package s3clientimpl
 
 import (
-	s3client "github.com/InseeFrLab/s3-operator/internal/s3/client"
+	s3client "github.com/InseeFrLab/s3-operator/pkg/s3/client"
+	s3model "github.com/InseeFrLab/s3-operator/pkg/s3/model"
 	"github.com/minio/madmin-go/v3"
 	ctrl "sigs.k8s.io/controller-runtime"
 )
@@ -41,6 +42,18 @@ func (mockedS3Provider *MockedS3Client) CreateBucket(name string) error {
 func (mockedS3Provider *MockedS3Client) DeleteBucket(name string) error {
 	s3Logger := ctrl.Log.WithValues("logger", "s3ClientImplMocked")
 	s3Logger.Info("deleting a bucket", "bucket", name)
+	return nil
+}
+
+func (mockedS3Provider *MockedS3Client) GetBucketAccessPolicy(bucketname string) (*s3model.BucketAccessPolicy, error) {
+	s3Logger := ctrl.Log.WithValues("logger", "s3ClientImplMocked")
+	s3Logger.Info("getting the access policy of a bucket", "bucket", bucketname)
+	return nil, nil
+}
+
+func (mockedS3Provider *MockedS3Client) SetBucketAccessPolicy(bucketname string, accessPolicyType s3model.BucketAccessPolicyType, accessPolicy string) error {
+	s3Logger := ctrl.Log.WithValues("logger", "s3ClientImplMocked")
+	s3Logger.Info("setting the access policy of a bucket", "bucket", bucketname, "policy", accessPolicyType)
 	return nil
 }
 

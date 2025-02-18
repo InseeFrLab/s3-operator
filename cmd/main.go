@@ -33,7 +33,7 @@ import (
 	s3InstanceControllers "github.com/InseeFrLab/s3-operator/internal/controller/s3instance"
 	userControllers "github.com/InseeFrLab/s3-operator/internal/controller/user"
 	"github.com/InseeFrLab/s3-operator/internal/helpers"
-	s3factory "github.com/InseeFrLab/s3-operator/internal/s3/factory/impl"
+	s3factory "github.com/InseeFrLab/s3-operator/pkg/s3/factory/impl"
 
 	"go.uber.org/zap/zapcore"
 	"k8s.io/apimachinery/pkg/runtime"

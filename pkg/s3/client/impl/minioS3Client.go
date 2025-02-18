@@ -26,7 +26,8 @@ import (
 	neturl "net/url"
 	"strings"
 
-	s3client "github.com/InseeFrLab/s3-operator/internal/s3/client"
+	s3client "github.com/InseeFrLab/s3-operator/pkg/s3/client"
+	s3model "github.com/InseeFrLab/s3-operator/pkg/s3/model"
 	"github.com/minio/madmin-go/v3"
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
@@ -74,7 +75,7 @@ func generateMinioClient(
 	caCertificates []string,
 ) (*minio.Client, error) {
 	s3Logger := ctrl.Log.WithValues("logger", "s3clientimplminio")
-	hostname, isSSL, err := extractHostAndScheme(url)
+	endpoint, isSSL, err := constructEndpointFromURL(url)
 	if err != nil {
 		s3Logger.Error(err, "an error occurred while creating a new minio client")
 		return nil, err
@@ -90,7 +91,7 @@ func generateMinioClient(
 		addTlsClientConfigToMinioOptions(caCertificates, minioOptions)
 	}
 
-	minioClient, err := minio.New(hostname, minioOptions)
+	minioClient, err := minio.New(endpoint, minioOptions)
 	if err != nil {
 		s3Logger.Error(err, "an error occurred while creating a new minio client")
 		return nil, err
@@ -105,7 +106,7 @@ func generateAdminMinioClient(
 	caCertificates []string,
 ) (*madmin.AdminClient, error) {
 	s3Logger := ctrl.Log.WithValues("logger", "s3clientimplminio")
-	hostname, isSSL, err := extractHostAndScheme(url)
+	endpoint, isSSL, err := constructEndpointFromURL(url)
 	if err != nil {
 		s3Logger.Error(err, "an error occurred while creating a new minio admin client")
 		return nil, err
@@ -120,7 +121,7 @@ func generateAdminMinioClient(
 		addTlsClientConfigToMinioAdminOptions(caCertificates, minioOptions)
 	}
 
-	minioAdminClient, err := madmin.NewWithOptions(hostname, minioOptions)
+	minioAdminClient, err := madmin.NewWithOptions(endpoint, minioOptions)
 	if err != nil {
 		s3Logger.Error(err, "an error occurred while creating a new minio admin client")
 		return nil, err
@@ -129,12 +130,19 @@ func generateAdminMinioClient(
 	return minioAdminClient, nil
 }
 
-func extractHostAndScheme(url string) (string, bool, error) {
+func constructEndpointFromURL(url string) (string, bool, error) {
 	parsedURL, err := neturl.Parse(url)
 	if err != nil {
 		return "", false, fmt.Errorf("cannot detect if url use ssl or not")
 	}
-	return parsedURL.Hostname(), parsedURL.Scheme == "https", nil
+
+	var endpoint = parsedURL.Hostname()
+	if !((parsedURL.Scheme == "https" && parsedURL.Port() == "443") ||
+		(parsedURL.Scheme == "http" && parsedURL.Port() == "80")) {
+		endpoint = fmt.Sprintf("%s:%s", endpoint, parsedURL.Port())
+	}
+
+	return endpoint, parsedURL.Scheme == "https", nil
 }
 
 func addTlsClientConfigToMinioOptions(caCertificates []string, minioOptions *minio.Options) {
@@ -283,6 +291,64 @@ func (minioS3Client *MinioS3Client) DeletePath(bucketname string, path string) e
 			bucketname,
 			"path",
 			path,
+		)
+		return err
+	}
+	return nil
+}
+
+func (minioS3Client *MinioS3Client) GetBucketAccessPolicy(bucketname string) (*s3model.BucketAccessPolicy, error) {
+	s3Logger := ctrl.Log.WithValues("logger", "s3clientimplminio")
+	s3Logger.Info("setting the access policy on bucket", "bucket", bucketname)
+
+	policy, err := minioS3Client.client.GetBucketPolicy(
+		context.Background(),
+		bucketname,
+	)
+	if err != nil {
+		s3Logger.Error(
+			err,
+			"an error occurred when getting the bucket policy",
+			"bucket",
+			bucketname,
+		)
+		return nil, err
+	}
+
+	bucketAccessPolicy, err := s3model.LoadBucketAccessPolicy(bucketname, policy)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load bucket access policy: %v", err)
+	}
+	return bucketAccessPolicy, nil
+}
+
+func (minioS3Client *MinioS3Client) SetBucketAccessPolicy(bucketname string, accessPolicyType s3model.BucketAccessPolicyType, accessPolicy string) error {
+	s3Logger := ctrl.Log.WithValues("logger", "s3clientimplminio")
+	s3Logger.Info("setting the access policy on bucket", "bucket", bucketname, "policyType", accessPolicyType)
+
+	bucketAccessPolicy, err := s3model.NewBucketAccessPolicy(bucketname, accessPolicyType, accessPolicy)
+	if err != nil {
+		return fmt.Errorf("failed to create bucket access policy object: %v", err)
+	}
+
+	jsonContent, err := bucketAccessPolicy.Content.JSON()
+	if err != nil {
+		return fmt.Errorf("failed to marshal bucket access policy object: %v", err)
+	}
+
+	err = minioS3Client.client.SetBucketPolicy(
+		context.Background(),
+		bucketname,
+		string(jsonContent),
+	)
+	if err != nil {
+		s3Logger.Error(
+			err,
+			"an error occurred during path deletion on bucket",
+			"bucket",
+			bucketname,
+			"policyType",
+			accessPolicyType,
 		)
 		return err
 	}

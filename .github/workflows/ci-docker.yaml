@@ -7,7 +7,7 @@ on:
     paths-ignore:
       - 'docs/**'
     tags:
-      - "*"
+      - "**"
   pull_request:
     paths-ignore:
       - 'docs/**'
@@ -24,8 +24,6 @@ jobs:
           dockerfile: Dockerfile
 
   build-docker:
-    outputs:
-      version: ${{ steps.get_version.outputs.VERSION }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -56,6 +54,7 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Build and push
+        id: build_push
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -66,5 +65,6 @@ jobs:
             ${{ steps.docker_meta.outputs.tags }}
           labels: ${{ steps.docker_meta.outputs.labels }}
           platforms: linux/amd64,linux/arm64
+
       - name: Image digest
-        run: echo ${{ steps.docker_build.outputs.digest }}
+        run: echo ${{ steps.build_push.outputs.digest }}

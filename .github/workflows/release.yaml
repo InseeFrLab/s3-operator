@@ -17,6 +17,20 @@ on:
 name: Make release
 
 jobs:
+  tags:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+      repository-projects: write
+    steps:
+      - name: Tag branch
+        env:
+          VERSION: ${{ github.event.inputs.version }}
+        run: |
+          git tag -f -a ${VERSION} -m "Release ${VERSION}."
+          git push -f origin ${VERSION}
+
   release:
     name: Make release
     runs-on: ubuntu-latest

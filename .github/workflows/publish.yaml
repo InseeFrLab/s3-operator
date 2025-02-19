@@ -31,6 +31,12 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: inseefrlab/s3-operator # list of Docker images to use as base name for tags
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -52,7 +58,7 @@ jobs:
           context: .
           file: ./Dockerfile
           push: ${{ github.event_name != 'pull_request' }}
-          tags: ${{ github.event.inputs.image_tag }}
+          tags: ${{ steps.docker_meta.outputs.tags }}
           labels: ${{ steps.docker_meta.outputs.labels }}
           platforms: linux/amd64,linux/arm64
 

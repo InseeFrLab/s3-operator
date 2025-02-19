@@ -42,24 +42,6 @@ jobs:
           git checkout -b $NEW_BRANCH
           git push origin $NEW_BRANCH
 
-  build-and-publish-docker:
-    needs:
-      - create-release-branch
-    uses: ./.github/workflows/publish.yaml
-    permissions:
-      id-token: write
-      contents: read
-    with:
-      ref: ${{ github.ref }}
-      image-tag: |
-        type=semver,pattern={{raw}},value=${{ github.event.inputs.version }}      
-        type=semver,pattern=v{{major}}.{{minor}},value=${{ github.event.inputs.version }}
-        type=semver,pattern=v{{major}},value=${{ github.event.inputs.version }}
-        type=raw,value=latest,enable=${{ !github.event.inputs.pre_release }}
-    secrets:
-      registry_username: ${{ secrets.DOCKERHUB_USERNAME }}
-      registry_password: ${{ secrets.DOCKERHUB_TOKEN }}
-
   release:
     name: Make release
     runs-on: ubuntu-latest

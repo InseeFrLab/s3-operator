@@ -3,7 +3,7 @@ name: Docker CI
 on:
   workflow_run:
     workflows:
-      - release
+      - Make release
     types:
       - completed
   release:

@@ -1,6 +1,11 @@
 name: Docker CI
 
 on:
+  workflow_run:
+    workflows:
+      - release
+    types:
+      - completed
   release:
     types: [created, published]
   push:
@@ -56,8 +61,8 @@ jobs:
         if: github.event_name != 'pull_request'
         uses: docker/login-action@v3
         with:
-          username: ${{ secrets.registry_username }}
-          password: ${{ secrets.registry_password }}
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Build and push
         id: build_push

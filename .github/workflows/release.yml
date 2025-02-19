@@ -15,21 +15,19 @@ on:
         default: false
         type: boolean
 
-
 name: Make release
 
 jobs:
-
   create-release-branch:
     runs-on: ubuntu-latest
     permissions:
-      contents: write  # Allows pushing branches
+      contents: write # Allows pushing branches
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # Ensure full history
-          ref:  ${{ github.event.inputs.source_ref }}
+          fetch-depth: 0 # Ensure full history
+          ref: ${{ github.event.inputs.source_ref }}
 
       - name: Configure Git
         run: |
@@ -44,11 +42,8 @@ jobs:
           git checkout -b $NEW_BRANCH
           git push origin $NEW_BRANCH
 
-  
-
-
   build-and-publish-docker:
-    needs: 
+    needs:
       - create-release-branch
     uses: ./.github/workflows/publish.yaml
     permissions:
@@ -56,7 +51,11 @@ jobs:
       contents: read
     with:
       ref: ${{ github.ref }}
-      image-tag: ${{ github.event.inputs.version }}
+      image-tag: |
+        type=semver,pattern={{raw}},value=${{ github.event.inputs.version }}      
+        type=semver,pattern=v{{major}}.{{minor}},value=${{ github.event.inputs.version }}
+        type=semver,pattern=v{{major}},value=${{ github.event.inputs.version }}
+        type=raw,value=latest,enable=${{ !github.event.inputs.pre_release }}
     secrets:
       registry_username: ${{ secrets.DOCKERHUB_USERNAME }}
       registry_password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -67,13 +66,12 @@ jobs:
     needs:
       - create-release-branch
     steps:
-
       - name: Checkout code
         uses: actions/checkout@v4
-      
+
       - name: Create Release
         id: create_release
-        uses: softprops/action-gh-release@v2        
+        uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.event.inputs.version }}
           name: Release ${{ github.event.inputs.version }}

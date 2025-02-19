@@ -5,22 +5,19 @@ on:
     branches:
       - "**"
     paths-ignore:
-      - 'docs/**'
+      - "docs/**"
     tags:
       - "**"
   pull_request:
     paths-ignore:
-      - 'docs/**'
-  
-jobs: 
+      - "docs/**"
 
+jobs:
   lint-docker:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
-
       - uses: hadolint/hadolint-action@v3.1.0
         with:
           dockerfile: Dockerfile
@@ -33,7 +30,11 @@ jobs:
       contents: read
     with:
       ref: ${{ github.ref }}
-      image-tag: ${{ github.ref }}
+      image-tag: |
+        type=schedule
+        type=ref,event=branch
+        type=ref,event=pr
+        type=ref,event=tag
     secrets:
       registry_username: ${{ secrets.DOCKERHUB_USERNAME }}
       registry_password: ${{ secrets.DOCKERHUB_TOKEN }}

@@ -10,7 +10,7 @@ on:
       image-tag:
         required: false
         type: string
-    secrets: 
+    secrets:
       registry_username:
         required: true
       registry_password:
@@ -23,8 +23,8 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # Ensure full history
-          ref:  ${{ github.event.inputs.source_ref }}
+          fetch-depth: 0 # Ensure full history
+          ref: ${{ github.event.inputs.source_ref }}
 
       - name: Docker meta
         id: docker_meta
@@ -53,7 +53,7 @@ jobs:
           file: ./Dockerfile
           push: ${{ github.event_name != 'pull_request' }}
           tags: |
-            inseefrlab/s3-operator:${{ github.event.inputs.image-tag }}
+            ${{ steps.docker_meta.outputs.tags }}
           labels: ${{ steps.docker_meta.outputs.labels }}
           platforms: linux/amd64,linux/arm64
 

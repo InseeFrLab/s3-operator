@@ -1,13 +1,6 @@
 name: Docker CI
 
 on:
-  workflow_run:
-    workflows:
-      - Make release
-    types:
-      - completed
-  release:
-    types: [created, published]
   push:
     branches:
       - "**"

@@ -7,7 +7,7 @@ on:
         required: false
         default: main
         type: string
-      image-tag:
+      image_tag:
         required: false
         type: string
     secrets: 
@@ -52,8 +52,7 @@ jobs:
           context: .
           file: ./Dockerfile
           push: ${{ github.event_name != 'pull_request' }}
-          tags: |
-            inseefrlab/s3-operator:${{ github.event.inputs.image-tag }}
+          tags: ${{ github.event.inputs.image_tag }}
           labels: ${{ steps.docker_meta.outputs.labels }}
           platforms: linux/amd64,linux/arm64
 

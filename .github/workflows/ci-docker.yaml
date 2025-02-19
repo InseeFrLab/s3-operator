@@ -33,7 +33,7 @@ jobs:
       contents: read
     with:
       ref: ${{ github.ref }}
-      image-tag: ${{ github.ref }}
+      image_tag: ${{ github.ref }}
     secrets:
       registry_username: ${{ secrets.DOCKERHUB_USERNAME }}
       registry_password: ${{ secrets.DOCKERHUB_TOKEN }}

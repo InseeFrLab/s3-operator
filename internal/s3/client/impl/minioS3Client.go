@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"net/http"
 	neturl "net/url"
+	"slices"
 	"strings"
 
 	s3client "github.com/InseeFrLab/s3-operator/internal/s3/client"
@@ -467,6 +468,9 @@ func (minioS3Client *MinioS3Client) GetUserPolicies(accessKey string) ([]string,
 		s3Logger.Error(err, "Error when getting userInfo")
 
 		return []string{}, err
+	}
+	if len(strings.Split(userInfo.PolicyName, ",")) == 1 && slices.Contains(strings.Split(userInfo.PolicyName, ","), "") {
+		return []string{}, nil
 	}
 	return strings.Split(userInfo.PolicyName, ","), nil
 }

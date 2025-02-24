@@ -17,7 +17,9 @@ limitations under the License.
 package policy_controller
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 
 	k8sapierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -29,6 +31,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	s3v1alpha1 "github.com/InseeFrLab/s3-operator/api/v1alpha1"
+	"github.com/minio/madmin-go/v3"
 )
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
@@ -386,4 +389,28 @@ func (r *PolicyReconciler) handleCreation(ctx context.Context, req reconcile.Req
 		"Policy reconciled",
 		err,
 	)
+}
+
+func (r *PolicyReconciler) isPolicyMatchingWithCustomResource(
+	policyResource *s3v1alpha1.Policy,
+	effectivePolicy *madmin.PolicyInfo,
+) (bool, error) {
+	// The policy content visible in the custom resource usually contains indentations and newlines
+	// while the one we get from S3 is compacted. In order to compare them, we compact the former.
+
+	policyResourceAsByteSlice := []byte(policyResource.Spec.PolicyContent)
+	buffer := new(bytes.Buffer)
+	err := json.Compact(buffer, policyResourceAsByteSlice)
+	if err != nil {
+		return false, err
+	}
+
+	// Another gotcha is that the effective policy comes up as a json.RawContent,
+	// which needs marshalling in order to be properly compared to the []byte we get from the CR.
+	marshalled, err := json.Marshal(effectivePolicy.Policy)
+	if err != nil {
+		return false, err
+	}
+
+	return bytes.Equal(buffer.Bytes(), marshalled), nil
 }

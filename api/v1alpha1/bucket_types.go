@@ -18,6 +18,7 @@ package v1alpha1
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 )
 
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
@@ -80,11 +81,11 @@ type BucketList struct {
 type Quota struct {
 	// Default quota to apply, mandatory
 	// +kubebuilder:validation:Required
-	Default int64 `json:"default"`
+	Default resource.Quantity `json:"default"`
 
 	// Optional override quota, to be used by cluster admin.
 	// +kubebuilder:validation:Optional
-	Override int64 `json:"override,omitempty"`
+	Override resource.Quantity `json:"override,omitempty"`
 }
 
 func init() {

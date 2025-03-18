@@ -3,7 +3,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.17.1
+    controller-gen.kubebuilder.io/version: v0.17.2
   name: buckets.s3.onyxia.sh
 spec:
   group: s3.onyxia.sh
@@ -51,13 +51,19 @@ spec:
                 description: Quota to apply to the bucket
                 properties:
                   default:
+                    anyOf:
+                    - type: integer
+                    - type: string
                     description: Default quota to apply, mandatory
-                    format: int64
-                    type: integer
+                    pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                    x-kubernetes-int-or-string: true
                   override:
+                    anyOf:
+                    - type: integer
+                    - type: string
                     description: Optional override quota, to be used by cluster admin.
-                    format: int64
-                    type: integer
+                    pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                    x-kubernetes-int-or-string: true
                 required:
                 - default
                 type: object

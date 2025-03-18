@@ -276,9 +276,45 @@ func (r *BucketReconciler) handleUpdate(
 	// we reset the quota using the value from CR ("override" is present, "default" if not)
 
 	// Choosing between override / default
-	quotaToResetTo := bucketResource.Spec.Quota.Override
+	quotaToResetTo, convertionSucceed := bucketResource.Spec.Quota.Override.AsInt64()
+	if !convertionSucceed {
+		logger.Error(
+			err,
+			"An error occurred while getting quotas override as int64 for ressource",
+			"bucketName",
+			bucketResource.Spec.Name,
+			"NamespacedName",
+			req.NamespacedName.String(),
+		)
+		return r.SetReconciledCondition(
+			ctx,
+			req,
+			bucketResource,
+			s3v1alpha1.Unreachable,
+			"An error occurred while creating bucket",
+			err,
+		)
+	}
 	if quotaToResetTo == 0 {
-		quotaToResetTo = bucketResource.Spec.Quota.Default
+		quotaToResetTo, convertionSucceed = bucketResource.Spec.Quota.Default.AsInt64()
+		if !convertionSucceed {
+			logger.Error(
+				err,
+				"An error occurred while getting default quotas as int64 for ressource",
+				"bucketName",
+				bucketResource.Spec.Name,
+				"NamespacedName",
+				req.NamespacedName.String(),
+			)
+			return r.SetReconciledCondition(
+				ctx,
+				req,
+				bucketResource,
+				s3v1alpha1.Unreachable,
+				"An error occurred while creating bucket",
+				err,
+			)
+		}
 	}
 
 	if effectiveQuota != quotaToResetTo {
@@ -428,7 +464,26 @@ func (r *BucketReconciler) handleCreation(
 	}
 
 	// Setting quotas
-	err = s3Client.SetQuota(bucketResource.Spec.Name, bucketResource.Spec.Quota.Default)
+	quotas, convertionSucceed := bucketResource.Spec.Quota.Default.AsInt64()
+	if !convertionSucceed {
+		logger.Error(
+			err,
+			"An error occurred while getting quotas as int64 for ressource",
+			"bucketName",
+			bucketResource.Spec.Name,
+			"NamespacedName",
+			req.NamespacedName.String(),
+		)
+		return r.SetReconciledCondition(
+			ctx,
+			req,
+			bucketResource,
+			s3v1alpha1.CreationFailure,
+			"An error occurred while creating bucket",
+			err,
+		)
+	}
+	err = s3Client.SetQuota(bucketResource.Spec.Name, quotas)
 	if err != nil {
 		logger.Error(
 			err,

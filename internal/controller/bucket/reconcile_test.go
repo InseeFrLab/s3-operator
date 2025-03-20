@@ -21,6 +21,7 @@ import (
 	"testing"
 
 	TestUtils "github.com/InseeFrLab/s3-operator/test/utils"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -47,7 +48,7 @@ func TestHandleCreate(t *testing.T) {
 		Spec: s3v1alpha1.BucketSpec{
 			Name:          "test-bucket",
 			S3InstanceRef: "s3-operator/default",
-			Quota:         s3v1alpha1.Quota{Default: 10},
+			Quota:         s3v1alpha1.Quota{Default: *resource.NewQuantity(int64(10), resource.BinarySI)},
 		},
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: "s3.onyxia.sh/v1alpha1",
@@ -92,8 +93,7 @@ func TestHandleUpdate(t *testing.T) {
 			Name:          "existing-bucket",
 			Paths:         []string{"example"},
 			S3InstanceRef: "s3-operator/default",
-			Quota:         s3v1alpha1.Quota{Default: 10},
-		},
+			Quota:         s3v1alpha1.Quota{Default: *resource.NewQuantity(int64(10), resource.BinarySI)}},
 	}
 
 	// Create a fake client with a sample CR
@@ -108,7 +108,7 @@ func TestHandleUpdate(t *testing.T) {
 			Name:          "existing-invalid-bucket",
 			Paths:         []string{"example", "non-existing"},
 			S3InstanceRef: "s3-operator/default",
-			Quota:         s3v1alpha1.Quota{Default: 100}},
+			Quota:         s3v1alpha1.Quota{Default: *resource.NewQuantity(int64(100), resource.BinarySI)}},
 	}
 
 	// Add mock for s3Factory and client

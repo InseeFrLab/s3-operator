@@ -25,6 +25,7 @@ import (
 	bucket_controller "github.com/InseeFrLab/s3-operator/internal/controller/bucket"
 	TestUtils "github.com/InseeFrLab/s3-operator/test/utils"
 	"github.com/stretchr/testify/assert"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -50,7 +51,7 @@ func TestHandleDelete(t *testing.T) {
 		Spec: s3v1alpha1.BucketSpec{
 			Name:          "example-bucket",
 			S3InstanceRef: "s3-operator/default",
-			Quota:         s3v1alpha1.Quota{Default: 10},
+			Quota:         s3v1alpha1.Quota{Default: *resource.NewQuantity(int64(10), resource.BinarySI)},
 		},
 	}
 

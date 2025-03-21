@@ -5,7 +5,7 @@ go 1.23.0
 require (
 	github.com/minio/madmin-go/v3 v3.0.99
 	github.com/minio/minio-go/v7 v7.0.88
-	github.com/onsi/ginkgo/v2 v2.23.0
+	github.com/onsi/ginkgo/v2 v2.23.3
 	github.com/onsi/gomega v1.36.2
 	github.com/stretchr/testify v1.10.0
 	go.uber.org/zap v1.27.0

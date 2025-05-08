@@ -11,6 +11,8 @@ controllerManager:
       capabilities:
         drop:
           - ALL
+    podSecurityContext:
+      runAsNonRoot: true
     image:
       repository: inseefrlab/s3-operator
       tag: latest

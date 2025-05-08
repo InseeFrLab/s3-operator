@@ -13,7 +13,8 @@ controllerManager:
           - ALL
     image:
       repository: inseefrlab/s3-operator
-      tag: latest
+      # Use the charts appVersion as a default
+      tag: null
     imagePullPolicy: IfNotPresent
     imagePullSecrets: []
     resources:

@@ -1,4 +1,4 @@
-listbuckets# s3-operator
+# s3-operator
 
 This Operator SDK based tool aims at managing S3 related resources (buckets, policies, ...) using a Kubernetes-centric approach. You can set `Bucket` or `Policy` custom resources, and let the operator create or update the corresponding bucket/policy on its configured S3 instance.
 

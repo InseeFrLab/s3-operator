@@ -1,4 +1,4 @@
-# s3-operator
+listbuckets# s3-operator
 
 This Operator SDK based tool aims at managing S3 related resources (buckets, policies, ...) using a Kubernetes-centric approach. You can set `Bucket` or `Policy` custom resources, and let the operator create or update the corresponding bucket/policy on its configured S3 instance.
 
@@ -229,7 +229,7 @@ spec:
   # Content of the policy, as a multiline string 
   # This should be IAM compliant JSON - follow the guidelines of the actual
   # S3 provider you're using, as sometimes only a subset is available.
-     The first Statement (Allow ListBucket) should be applied to every user,
+     The first Statement (Allow ListAllMyBuckets) should be applied to every user,
   # as s3-operator uses this call to verify that credentials are valid when
   # reconciling an existing user.
   policyContent: >-
@@ -239,7 +239,7 @@ spec:
       {
         "Effect": "Allow",
         "Action": [
-          "s3:ListBucket"
+          "s3:ListAllMyBuckets"
         ],
         "Resource": [
           "arn:aws:s3:::*"

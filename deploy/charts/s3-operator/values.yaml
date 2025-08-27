@@ -6,17 +6,31 @@ crds:
 
 controllerManager:
   manager:
+    # -- Set the priority class name
+    priorityClassName: '' # system-cluster-critical
+    # -- Set the Pod securityContext
+    podSecurityContext:
+      runAsNonRoot: true
+    # -- Annotations to add to the pod.
+    podAnnotations: {}
+    # -- Labels to add to the pod.
+    podLabels: {}
+    # -- Set the Container securityContext
     containerSecurityContext:
       allowPrivilegeEscalation: false
       capabilities:
         drop:
           - ALL
     image:
+      # Image Repository
       repository: inseefrlab/s3-operator
       # Use the charts appVersion as a default
       tag: null
+     # -- Set the image pull policy
     imagePullPolicy: IfNotPresent
+    # -- Configuration for `imagePullSecrets` so that you can use a private images registry.
     imagePullSecrets: []
+    # -- Set the resources
     resources:
       limits:
         cpu: 1000m
@@ -24,14 +38,18 @@ controllerManager:
       requests:
         cpu: 50m
         memory: 64Mi
+    # -- Additional Arguments
     extraArgs: []
+    # -- Additional Environment Variables
     extraEnv: {}
+  # -- Amount of Replicas
   replicas: 1
 
 kubernetes:
   clusterDomain: cluster.local
   overrideExistingSecret: false
 
+# -- Default S3 Instance
 s3:
   default:
     enabled: false

@@ -19,8 +19,14 @@ spec:
       labels:
         control-plane: controller-manager
       {{- include "s3-operator.selectorLabels" . | nindent 8 }}
+      {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+      {{- end }}      
       annotations:
         kubectl.kubernetes.io/default-container: manager
+      {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
     spec:
       {{- with  .Values.controllerManager.manager.imagePullSecrets }}
       imagePullSecrets:
@@ -68,6 +74,7 @@ spec:
         securityContext: {{- toYaml .Values.controllerManager.manager.containerSecurityContext
           | nindent 10 }}
       securityContext:
-        runAsNonRoot: true
+        {{- toYaml .Values.controllerManager.manager.podSecurityContext | nindent 10 }}
+      priorityClassName: {{ .Values.priorityClassName }}  
       serviceAccountName: {{ include "s3-operator.fullname" . }}-controller-manager
       terminationGracePeriodSeconds: 10

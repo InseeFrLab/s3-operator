@@ -35,6 +35,8 @@ kubernetes:
 s3:
   default:
     enabled: false
+    createNamespace: true
+    namespace: "s3-operator"
     s3Provider: minio
     url: "https://localhost:9000"
     accessKey: "accessKey"

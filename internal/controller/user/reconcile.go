@@ -377,7 +377,7 @@ func (r *S3UserReconciler) handleUpdate(
 		policyFound := slices.Contains(userResource.Spec.Policies, policy)
 		if !policyFound {
 			logger.Info(
-				fmt.Sprintf("S3User policy definition doesn't contain policy %s", policy),
+				fmt.Sprintf("S3User has unexpected policy not in definition: %s", policy),
 				"userResource",
 				userResource.Name,
 				"NamespacedName",
@@ -391,7 +391,7 @@ func (r *S3UserReconciler) handleUpdate(
 		policyFound := slices.Contains(userPolicies, policy)
 		if !policyFound {
 			logger.Info(
-				fmt.Sprintf("S3User policy definition must contain policy %s", policy),
+				fmt.Sprintf("S3User is missing policy from definition: %s", policy),
 				"userResource",
 				userResource.Name,
 				"NamespacedName",

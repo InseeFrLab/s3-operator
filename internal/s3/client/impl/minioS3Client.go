@@ -539,7 +539,7 @@ func (minioS3Client *MinioS3Client) RemovePoliciesFromUser(
 		}
 		s3Logger.Error(
 			err,
-			"an error occurred when attaching a policy to the user",
+			"an error occurred when detaching a policy to the user",
 			"code",
 			errAsResp.Code,
 		)

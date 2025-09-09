@@ -469,10 +469,11 @@ func (minioS3Client *MinioS3Client) GetUserPolicies(accessKey string) ([]string,
 
 		return []string{}, err
 	}
-	if len(strings.Split(userInfo.PolicyName, ",")) == 1 && slices.Contains(strings.Split(userInfo.PolicyName, ","), "") {
+	userPolicies := strings.Split(strings.TrimSpace(userInfo.PolicyName), ",")
+	if len(userPolicies) == 1 && slices.Contains(userPolicies, "") {
 		return []string{}, nil
 	}
-	return strings.Split(userInfo.PolicyName, ","), nil
+	return userPolicies, nil
 }
 
 func (minioS3Client *MinioS3Client) CheckUserCredentialsValid(

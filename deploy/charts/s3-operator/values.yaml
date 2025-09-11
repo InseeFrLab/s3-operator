@@ -48,6 +48,7 @@ controllerManager:
 kubernetes:
   clusterDomain: cluster.local
   overrideExistingSecret: false
+  readExistingSecret: false
 
 # -- Default S3 Instance
 s3:

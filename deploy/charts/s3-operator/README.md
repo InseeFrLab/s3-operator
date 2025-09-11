@@ -24,6 +24,6 @@ A Helm chart for deploying an operator to manage S3 resources (eg buckets, polic
 | crds.install | bool | `true` | Install and upgrade CRDs |
 | crds.keep | bool | `true` | Keep CRDs on chart uninstall |
 | kubernetes.clusterDomain | string | `"cluster.local"` |  |
-| kubernetes.overrideExistingSecret | bool | `false` |  |
+| kubernetes.overrideExistingSecret | bool | `false` | When creating an S3User, update existing secret with the generated secret key |
+| kubernetes.readExistingSecret | bool | `false` | When creating an S3User, read existing secret to retrieve the secret key |
 | s3 | object | `{"default":{"accessKey":"accessKey","createNamespace":true,"deletion":{"bucket":true,"path":false,"policy":false,"s3user":false},"enabled":false,"namespace":"s3-operator","region":"us-east-1","s3Provider":"minio","secretKey":"secretKey","url":"https://localhost:9000"}}` | Default S3 Instance |
-

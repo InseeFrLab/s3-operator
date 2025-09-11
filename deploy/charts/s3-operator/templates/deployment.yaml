@@ -38,6 +38,7 @@ spec:
         - --metrics-bind-address=127.0.0.1:8080
         - --leader-elect
         - --override-existing-secret={{ .Values.kubernetes.overrideExistingSecret }}
+        - --read-existing-secret={{ .Values.kubernetes.readExistingSecret }}
         {{- if .Values.controllerManager.manager.extraArgs }}
         {{- toYaml .Values.controllerManager.manager.extraArgs | nindent 8 }}
         {{- end }}

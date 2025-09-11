@@ -80,6 +80,7 @@ func main() {
 
 	//K8S related variable
 	var overrideExistingSecret bool
+	var readExistingSecret bool
 
 	flag.StringVar(
 		&metricsAddr,
@@ -105,6 +106,12 @@ func main() {
 		"override-existing-secret",
 		false,
 		"Override existing secret associated to user in case of the secret already exist",
+	)
+	flag.BoolVar(
+		&readExistingSecret,
+		"read-existing-secret",
+		false,
+		"Read existing secret associated to user in case of the secret already exist",
 	)
 
 	opts := zap.Options{
@@ -203,6 +210,7 @@ func main() {
 		Client:                  mgr.GetClient(),
 		Scheme:                  mgr.GetScheme(),
 		OverrideExistingSecret:  overrideExistingSecret,
+		ReadExistingSecret:  	 readExistingSecret,
 		ReconcilePeriod:         reconcilePeriod,
 		S3factory:               s3Factory,
 		ControllerHelper:        controllerHelper,

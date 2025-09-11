@@ -247,7 +247,7 @@ func (r *S3UserReconciler) handleUpdate(
 			err,
 		)
 	}
-
+	ownedSecret := true
 	userOwnedlinkedSecrets, err := r.getUserLinkedSecrets(ctx, userResource)
 	if err != nil {
 		logger.Error(
@@ -267,8 +267,27 @@ func (r *S3UserReconciler) handleUpdate(
 			err,
 		)
 	}
+	userUnlinkedSecret, err := r.getUserUnlinkedSecret(ctx, userResource.Namespace, userResource.Spec.SecretName, userResource.Name)
+	if err != nil {
+		logger.Error(
+			err,
+			"An error occurred while listing the user's secret",
+			"userResourceName",
+			userResource.Name,
+			"NamespacedName",
+			req.NamespacedName.String(),
+		)
+		return r.SetReconciledCondition(
+			ctx,
+			req,
+			userResource,
+			s3v1alpha1.Unreachable,
+			"Impossible to list the user's secret",
+			err,
+		)
+	}
 	currentUserSecret := corev1.Secret{}
-	if len(userOwnedlinkedSecrets) == 0 {
+	if len(userOwnedlinkedSecrets) == 0  && userUnlinkedSecret == nil {
 		logger.Info(
 			"No Secret associated to user found, user will be deleted from the S3 backend, then recreated with a secret",
 			"userResourceName",
@@ -298,6 +317,9 @@ func (r *S3UserReconciler) handleUpdate(
 			)
 		}
 		return r.handleCreate(ctx, req, userResource)
+	} else if userUnlinkedSecret != nil {
+		currentUserSecret = *userUnlinkedSecret
+		ownedSecret = false
 	} else {
 		foundSecret := false
 		for _, linkedsecret := range userOwnedlinkedSecrets {
@@ -473,31 +495,42 @@ func (r *S3UserReconciler) handleUpdate(
 	}
 
 	if !credentialsValid {
-		logger.Info(
-			"The secret containing the credentials will be deleted, and the user will be deleted from the S3 backend, then recreated (through another reconcile)",
-			"userResource",
-			userResource.Name,
-			"NamespacedName",
-			req.NamespacedName.String(),
-		)
-		err = r.deleteSecret(ctx, &currentUserSecret)
-		if err != nil {
-			logger.Error(err, "Deletion of secret associated to user have failed", "userResource",
-				userResource.Name,
-				"userResourceName",
+		if ownedSecret {
+			logger.Info(
+				"The secret containing the credentials will be deleted, and the user will be deleted from the S3 backend, then recreated (through another reconcile)",
+				"userResource",
 				userResource.Name,
 				"NamespacedName",
-				req.NamespacedName.String())
-			return r.SetReconciledCondition(
-				ctx,
-				req,
-				userResource,
-				s3v1alpha1.Unreachable,
-				"Deletion of secret associated to user have failed",
-				err,
+				req.NamespacedName.String(),
 			)
+			err = r.deleteSecret(ctx, &currentUserSecret)
+			if err != nil {
+				logger.Error(err, "Deletion of secret associated to user have failed", "userResource",
+					userResource.Name,
+					"userResourceName",
+					userResource.Name,
+					"NamespacedName",
+					req.NamespacedName.String())
+				return r.SetReconciledCondition(
+					ctx,
+					req,
+					userResource,
+					s3v1alpha1.Unreachable,
+					"Deletion of secret associated to user have failed",
+					err,
+				)
 
+			}
+		} else {
+			logger.Info(
+				"The user will be deleted from the S3 backend, then recreated (through another reconcile), the secret will be kept.",
+				"userResource",
+				userResource.Name,
+				"NamespacedName",
+				req.NamespacedName.String(),
+			)
 		}
+
 		err = s3Client.DeleteUser(userResource.Spec.AccessKey)
 		if err != nil {
 			logger.Error(err, "Could not delete user on S3 server", "userResource",
@@ -751,15 +784,30 @@ func (r *S3UserReconciler) handleCreate(
 			}
 		}
 
-		if r.OverrideExistingSecret {
-			// Case 3.2 : they are not valid, but the operator is configured to overwrite it
-			logger.Info(fmt.Sprintf("A secret with the name %s already exists ; it will be overwritten because of operator configuration", secret.Name), "secretName",
-				secret.Name,
-				"userResource",
-				userResource.Name,
-				"NamespacedName",
+		if r.OverrideExistingSecret || r.ReadExistingSecret {
+			if r.ReadExistingSecret {
+				// Case 3.2a : read existing secret instead of updating it
+				logger.Info(fmt.Sprintf("The secret key will be retrieved from the secret named %s.", secret.Name), "secretName",
+					secret.Name,
+					"userResource",
+					userResource.Name,
+					"NamespacedName",
 				req.NamespacedName.String())
-
+				var cpData = *&existingK8sSecret.Data
+				for k, v := range cpData {
+					if k == userResource.Spec.SecretFieldNameSecretKey {
+						secretKey = string(v)
+					}
+				}
+			} else {
+				// Case 3.2b : they are not valid, but the operator is configured to overwrite it
+				logger.Info(fmt.Sprintf("A secret with the name %s already exists ; it will be overwritten because of operator configuration", secret.Name), "secretName",
+					secret.Name,
+					"userResource",
+					userResource.Name,
+					"NamespacedName",
+					req.NamespacedName.String())
+			}
 			// Creating the user
 			err = s3Client.CreateUser(userResource.Spec.AccessKey, secretKey)
 			if err != nil {
@@ -780,32 +828,33 @@ func (r *S3UserReconciler) handleCreate(
 					err,
 				)
 			}
-
-			// Updating the secret
-			logger.Info("Updating the pre-existing secret with new credentials",
-				"secretName",
-				secret.Name,
-				"userResource",
-				userResource.Name,
-				"NamespacedName",
-				req.NamespacedName.String(),
-			)
-			err = r.Update(ctx, secret)
-			if err != nil {
-				logger.Error(err, "Could not update secret", "secretName",
+			if r.OverrideExistingSecret {
+				// Updating the secret
+				logger.Info("Updating the pre-existing secret with new credentials",
+					"secretName",
 					secret.Name,
 					"userResource",
 					userResource.Name,
 					"NamespacedName",
-					req.NamespacedName.String())
-				return r.SetReconciledCondition(
-					ctx,
-					req,
-					userResource,
-					s3v1alpha1.Unreachable,
-					"Update of secret have failed",
-					err,
+					req.NamespacedName.String(),
 				)
+				err = r.Update(ctx, secret)
+				if err != nil {
+					logger.Error(err, "Could not update secret", "secretName",
+						secret.Name,
+						"userResource",
+						userResource.Name,
+						"NamespacedName",
+						req.NamespacedName.String())
+					return r.SetReconciledCondition(
+						ctx,
+						req,
+						userResource,
+						s3v1alpha1.Unreachable,
+						"Update of secret have failed",
+						err,
+					)
+				}
 			}
 
 			// Add policies

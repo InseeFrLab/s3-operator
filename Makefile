@@ -289,7 +289,7 @@ helm-docs: helm-doc
 	$(HELM_DOCS) --chart-search-root ./deploy/charts
 
 HELM_DOCS         := $(LOCALBIN)/helm-docs
-HELM_DOCS_VERSION := v1.14.1
+HELM_DOCS_VERSION := v1.14.2
 HELM_DOCS_LOOKUP  := norwoodj/helm-docs
 helm-doc:
 	@test -s $(HELM_DOCS) || $(call go-install-tool,$(HELM_DOCS),github.com/$(HELM_DOCS_LOOKUP)/cmd/helm-docs@$(HELM_DOCS_VERSION))

@@ -45,11 +45,11 @@ The S3 operator is provided either in source form through this repository, or al
 
 ### Helm
 
-With this Docker image, the recommended way of installing S3 Operator on your cluster is to use the Helm chart provided in the dedicated repository : https://github.com/InseeFrLab/helm-charts/tree/master/charts/s3-operator. Among other things, the chart takes care of managing a (Kubernetes) ServiceAccount for the operator to run as. The most basic way of using this chart would be : 
+With this Docker image, the recommended way of installing S3 Operator on your cluster is to use the Helm chart provided in this repository [`deploy/charts/s3-operator` directory](./deploy/charts/s3-operator). Among other things, the chart takes care of managing a (Kubernetes) ServiceAccount for the operator to run as. The most basic way of using this chart would be:
 
 ```shell
-helm repo add inseefrlab https://inseefrlab.github.io/helm-charts # or [helm repo update] if already available
-helm install <name> s3-operator --values <yaml-file/url>  # see below for the parameters
+helm repo add inseefrlab-s3operator https://inseefrlab.github.io/s3-operator # or [helm repo update] if already available
+helm install <name> inseefrlab-s3operator/s3-operator --values <yaml-file/url>  # see below for the parameters
 ```
 
 ### Running from source

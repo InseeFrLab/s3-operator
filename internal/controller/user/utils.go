@@ -65,7 +65,7 @@ func (r *S3UserReconciler) addPoliciesToUser(
 func (r *S3UserReconciler) getUserLinkedSecrets(
 	ctx context.Context,
 	userResource *s3v1alpha1.S3User,
-) ([]corev1.Secret, error) {
+) ([]corev1.Secret, *corev1.Secret, error) {
 	logger := log.FromContext(ctx)
 
 	// Listing every secrets in the S3User's namespace, as a first step
@@ -73,68 +73,45 @@ func (r *S3UserReconciler) getUserLinkedSecrets(
 	// TODO : proper label matching ?
 	secretsList := &corev1.SecretList{}
 
-	userSecretList := []corev1.Secret{}
+	userOwnedSecretList := []corev1.Secret{}
 
 	err := r.List(ctx, secretsList, client.InNamespace(userResource.Namespace))
 	if err != nil {
 		logger.Error(err, "An error occurred while listing the secrets in user's namespace")
-		return userSecretList, fmt.Errorf("SecretListingFailed")
+		return userOwnedSecretList, nil, fmt.Errorf("SecretListingFailed")
 	}
 
 	if len(secretsList.Items) == 0 {
 		logger.Info("The user's namespace doesn't appear to contain any secret")
-		return userSecretList, nil
+		return userOwnedSecretList, nil, nil
 	}
 	// In all the secrets inside the S3User's namespace, one should have an owner reference
 	// pointing to the S3User. For that specific secret, we check if its name matches the one from
 	// the S3User, whether explicit (userResource.Spec.SecretName) or implicit (userResource.Name)
 	// In case of mismatch, that secret is deleted (and will be recreated) ; if there is a match,
 	// it will be used for state comparison.
+	// We also check for secret not owned by the resource but with a name matching the configured
+	// or default one. If such a secret is found it will be returned separately as it is to be
+	// handled differently.
 	uid := userResource.GetUID()
 
+	var secretConfiguredName string = userResource.Spec.SecretName
+	var secretDefaultName string = userResource.Name
+	var notOwnedConfiguredSecret *corev1.Secret
 	// cmp.Or takes the first non "zero" value, see https://pkg.go.dev/cmp#Or
 	for _, secret := range secretsList.Items {
 		for _, ref := range secret.OwnerReferences {
 			if ref.UID == uid {
-				userSecretList = append(userSecretList, secret)
+				userOwnedSecretList = append(userOwnedSecretList, secret)
+			} else if secret.Name == secretConfiguredName {
+				notOwnedConfiguredSecret = &secret
+			} else if secret.Name == secretDefaultName && notOwnedConfiguredSecret == nil {
+				notOwnedConfiguredSecret = &secret
 			}
 		}
 	}
 
-	return userSecretList, nil
-}
-
-
-func (r *S3UserReconciler) getUserUnlinkedSecret(
-	ctx context.Context,
-	namespace string,
-	secretNameA string,
-	secretNameB string,
-) (*corev1.Secret, error) {
-	logger := log.FromContext(ctx)
-	// Listing every secrets in the S3User's namespace, as a first step
-	// to get the actual secret matching the S3User proper.
-	// TODO : proper label matching ?
-	secretsList := &corev1.SecretList{}
-	err := r.List(ctx, secretsList, client.InNamespace(namespace))
-	if err != nil {
-		logger.Error(err, "An error occurred while listing the secrets in user's namespace")
-		return nil, fmt.Errorf("SecretListingFailed")
-	}
-	if len(secretsList.Items) == 0 {
-		logger.Info("The user's namespace doesn't appear to contain any secret")
-		return nil, nil
-	}
-
-	var secretB *corev1.Secret
-	for _, secret := range secretsList.Items {
-		if secret.Name == secretNameA {
-			return &secret, nil
-		} else if secret.Name == secretNameB {
-			secretB = &secret
-		}
-	}
-	return secretB, nil
+	return userOwnedSecretList, notOwnedConfiguredSecret, nil
 }
 
 func (r *S3UserReconciler) deleteSecret(ctx context.Context, secret *corev1.Secret) error {

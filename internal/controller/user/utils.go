@@ -100,15 +100,21 @@ func (r *S3UserReconciler) getUserLinkedSecrets(
 	var notOwnedConfiguredSecret *corev1.Secret
 	// cmp.Or takes the first non "zero" value, see https://pkg.go.dev/cmp#Or
 	for _, secret := range secretsList.Items {
+		var secretLinked = false
 		for _, ref := range secret.OwnerReferences {
 			if ref.UID == uid {
 				userOwnedSecretList = append(userOwnedSecretList, secret)
-			} else if secret.Name == secretConfiguredName {
+				secretLinked = true
+			}
+		}
+		if (!secretLinked) {
+			if secret.Name == secretConfiguredName {
 				notOwnedConfiguredSecret = &secret
 			} else if secret.Name == secretDefaultName && notOwnedConfiguredSecret == nil {
 				notOwnedConfiguredSecret = &secret
 			}
 		}
+
 	}
 
 	return userOwnedSecretList, notOwnedConfiguredSecret, nil

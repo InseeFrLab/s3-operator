@@ -33,6 +33,203 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 )
 
+func TestExistingSecret(t *testing.T) {
+	// Set up a logger before running tests
+	log.SetLogger(zap.New(zap.UseDevMode(true)))
+
+	// Create a fake client with a sample CR
+	s3UserResource := &s3v1alpha1.S3User{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:       "example-user",
+			Namespace:  "default",
+			Generation: 1,
+		},
+		Spec: s3v1alpha1.S3UserSpec{
+			S3InstanceRef:            "s3-operator/default",
+			AccessKey:                "example-user",
+			SecretName:               "example-user-secret",
+			Policies:                 []string{"admin"},
+			SecretFieldNameAccessKey: "accessKey",
+			SecretFieldNameSecretKey: "secretKey",
+		},
+	}
+	thiefS3UserResource := &s3v1alpha1.S3User{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:       "example-thief-user",
+			Namespace:  "default",
+			Generation: 1,
+		},
+		Spec: s3v1alpha1.S3UserSpec{
+			S3InstanceRef:            "s3-operator/default",
+			AccessKey:                "example-user",
+			SecretName:               "other-user-secret",
+			Policies:                 []string{"admin"},
+			SecretFieldNameAccessKey: "accessKey",
+			SecretFieldNameSecretKey: "secretKey",
+		},
+	}
+	blockOwnerDeletion := true
+	controller := true
+
+	secretOtherS3UserResource := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "other-user-secret",
+			Namespace: "default",
+			OwnerReferences: []metav1.OwnerReference{
+				{
+					APIVersion:         s3UserResource.APIVersion,
+					Kind:               "S3User",
+					Name:               s3UserResource.Name,
+					BlockOwnerDeletion: &blockOwnerDeletion,
+					Controller:         &controller,
+					UID:                "2c3d94ab-53f1-43f4-8f2b-33533be8d8e3", // chosen by fair dice roll
+				},
+			},
+		},
+		Data: map[string][]byte{
+			"accessKey": []byte("example-user"),
+			"secretKey": []byte("any-secret"),
+		},
+	}
+	secretS3UserResource := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "example-user-secret",
+			Namespace: "default",
+		},
+		Data: map[string][]byte{
+			"accessKey": []byte("example-user"),
+			"secretKey": []byte("any-secret"),
+		},
+	}
+
+	// Add mock for s3Factory and client
+	testUtils := TestUtils.NewTestUtils()
+	testUtils.SetupMockedS3FactoryAndClient()
+	s3instanceResource, secretResource := testUtils.GenerateBasicS3InstanceAndSecret()
+	testUtils.SetupClient([]client.Object{s3instanceResource, secretResource, s3UserResource, secretS3UserResource, thiefS3UserResource, secretOtherS3UserResource})
+
+	// Create the reconciler
+	reconciler := &user_controller.S3UserReconciler{
+		Client:    testUtils.Client,
+		Scheme:    testUtils.Client.Scheme(),
+		S3factory: testUtils.S3Factory,
+	}
+
+	reconciler.ReadExistingSecret = false
+	reconciler.OverrideExistingSecret = false
+	t.Run("error existing secret (case 3.3)", func(t *testing.T) {
+		// Call Reconcile function
+		req := ctrl.Request{NamespacedName: types.NamespacedName{Name: s3UserResource.Name, Namespace: s3UserResource.Namespace}}
+		_, err := reconciler.Reconcile(context.TODO(), req)
+		assert.NotNil(t, err)
+		s3UserResourceUpdated := &s3v1alpha1.S3User{}
+		err = testUtils.Client.Get(context.TODO(), client.ObjectKey{
+			Namespace: "default",
+			Name:      "example-user",
+		}, s3UserResourceUpdated)
+		assert.NoError(t, err)
+		assert.Equal(t, s3v1alpha1.CreationFailure, s3UserResourceUpdated.Status.Conditions[0].Reason)
+		assert.Equal(t, metav1.ConditionFalse, s3UserResourceUpdated.Status.Conditions[0].Status)
+		assert.Contains(t, s3UserResourceUpdated.Status.Conditions[0].Message, "Creation of user on S3 instance has failed because secret contains invalid credentials. The user's spec should be changed to target a different secret")
+	})
+
+	reconciler.ReadExistingSecret = false
+	reconciler.OverrideExistingSecret = true
+	t.Run("no error override existing secret (case 3.2a)", func(t *testing.T) {
+
+		existingSecret := &corev1.Secret{}
+		err := testUtils.Client.Get(context.TODO(), client.ObjectKey{
+			Namespace: "default",
+			Name:      "example-user-secret",
+		}, existingSecret)
+		assert.NoError(t, err)
+
+
+		// Call Reconcile function
+		req := ctrl.Request{NamespacedName: types.NamespacedName{Name: s3UserResource.Name, Namespace: s3UserResource.Namespace}}
+		_, err = reconciler.Reconcile(context.TODO(), req)
+		assert.NoError(t, err)
+		s3UserResourceUpdated := &s3v1alpha1.S3User{}
+		err = testUtils.Client.Get(context.TODO(), client.ObjectKey{
+			Namespace: "default",
+			Name:      "example-user",
+		}, s3UserResourceUpdated)
+		assert.NoError(t, err)
+		assert.Equal(t, s3v1alpha1.Reconciled, s3UserResourceUpdated.Status.Conditions[0].Reason)
+		assert.Equal(t, metav1.ConditionTrue, s3UserResourceUpdated.Status.Conditions[0].Status)
+		assert.Contains(t, s3UserResourceUpdated.Status.Conditions[0].Message, "User reconciled")
+
+
+		newSecret := &corev1.Secret{}
+		err = testUtils.Client.Get(context.TODO(), client.ObjectKey{
+			Namespace: "default",
+			Name:      "example-user-secret",
+		}, newSecret)
+		assert.NoError(t, err)
+		assert.Equal(t, string(newSecret.Data["accessKey"]), string(existingSecret.Data["accessKey"]))
+		assert.NotEqual(t, string(newSecret.Data["secretKey"]), string(existingSecret.Data["secretKey"]))
+
+	})
+	reconciler.OverrideExistingSecret = false
+	reconciler.ReadExistingSecret = true
+	t.Run("no error read existing secret (case 3.2b)", func(t *testing.T) {
+		existingSecret := &corev1.Secret{}
+		err := testUtils.Client.Get(context.TODO(), client.ObjectKey{
+			Namespace: "default",
+			Name:      "example-user-secret",
+		}, existingSecret)
+		assert.NoError(t, err)
+
+		// Call Reconcile function
+		req := ctrl.Request{NamespacedName: types.NamespacedName{Name: s3UserResource.Name, Namespace: s3UserResource.Namespace}}
+		_, err = reconciler.Reconcile(context.TODO(), req)
+		assert.NoError(t, err)
+		s3UserResourceUpdated := &s3v1alpha1.S3User{}
+		err = testUtils.Client.Get(context.TODO(), client.ObjectKey{
+			Namespace: "default",
+			Name:      "example-user",
+		}, s3UserResourceUpdated)
+		assert.NoError(t, err)
+		assert.Equal(t, s3v1alpha1.Reconciled, s3UserResourceUpdated.Status.Conditions[0].Reason)
+		assert.Equal(t, metav1.ConditionTrue, s3UserResourceUpdated.Status.Conditions[0].Status)
+		assert.Contains(t, s3UserResourceUpdated.Status.Conditions[0].Message, "User reconciled")
+
+		newSecret := &corev1.Secret{}
+		err = testUtils.Client.Get(context.TODO(), client.ObjectKey{
+			Namespace: "default",
+			Name:      "example-user-secret",
+		}, newSecret)
+		assert.NoError(t, err)
+		assert.Equal(t, string(newSecret.Data["accessKey"]), string(existingSecret.Data["accessKey"]))
+		assert.Equal(t, string(newSecret.Data["secretKey"]), string(existingSecret.Data["secretKey"]))
+	})
+
+	reconciler.ReadExistingSecret = false
+	reconciler.OverrideExistingSecret = false
+	t.Run("error existing secret owned by another one (case 3.1)", func(t *testing.T) {
+		existingSecret := &corev1.Secret{}
+		err := testUtils.Client.Get(context.TODO(), client.ObjectKey{
+			Namespace: "default",
+			Name:      "other-user-secret",
+		}, existingSecret)
+		assert.NoError(t, err)
+		assert.NotEqual(t, existingSecret.OwnerReferences[0].UID, thiefS3UserResource.UID)
+		// Call Reconcile function
+		req := ctrl.Request{NamespacedName: types.NamespacedName{Name: thiefS3UserResource.Name, Namespace: thiefS3UserResource.Namespace}}
+		_, err = reconciler.Reconcile(context.TODO(), req)
+		assert.NotNil(t, err)
+		s3UserResourceUpdated := &s3v1alpha1.S3User{}
+		err = testUtils.Client.Get(context.TODO(), client.ObjectKey{
+			Namespace: "default",
+			Name:      "example-thief-user",
+		}, s3UserResourceUpdated)
+		assert.NoError(t, err)
+		assert.Equal(t, s3v1alpha1.CreationFailure, s3UserResourceUpdated.Status.Conditions[0].Reason)
+		assert.Equal(t, metav1.ConditionFalse, s3UserResourceUpdated.Status.Conditions[0].Status)
+		assert.Contains(t, s3UserResourceUpdated.Status.Conditions[0].Message, "The secret matching the new S3User's spec is owned by a different, pre-existing S3User")
+	})
+}
+
 func TestHandleCreate(t *testing.T) {
 	// Set up a logger before running tests
 	log.SetLogger(zap.New(zap.UseDevMode(true)))
@@ -89,6 +286,15 @@ func TestHandleCreate(t *testing.T) {
 		req := ctrl.Request{NamespacedName: types.NamespacedName{Name: s3UserResource.Name, Namespace: s3UserResource.Namespace}}
 		_, err := reconciler.Reconcile(context.TODO(), req)
 		assert.NoError(t, err)
+		s3UserResourceUpdated := &s3v1alpha1.S3User{}
+		err = testUtils.Client.Get(context.TODO(), client.ObjectKey{
+			Namespace: "default",
+			Name:      "example-user",
+		}, s3UserResourceUpdated)
+		assert.NoError(t, err)
+		assert.Equal(t, s3v1alpha1.Reconciled, s3UserResourceUpdated.Status.Conditions[0].Reason)
+		assert.Equal(t, metav1.ConditionTrue, s3UserResourceUpdated.Status.Conditions[0].Status)
+		assert.Contains(t, s3UserResourceUpdated.Status.Conditions[0].Message, "User reconciled")
 	})
 
 	t.Run("error if using invalidS3Instance", func(t *testing.T) {
@@ -99,9 +305,6 @@ func TestHandleCreate(t *testing.T) {
 	})
 
 	t.Run("secret is created", func(t *testing.T) {
-		// Call Reconcile function
-		req := ctrl.Request{NamespacedName: types.NamespacedName{Name: s3UserResource.Name, Namespace: s3UserResource.Namespace}}
-		reconciler.Reconcile(context.TODO(), req)
 
 		secretCreated := &corev1.Secret{}
 		err := testUtils.Client.Get(context.TODO(), client.ObjectKey{
@@ -113,6 +316,7 @@ func TestHandleCreate(t *testing.T) {
 		assert.GreaterOrEqual(t, len(string(secretCreated.Data["secretKey"])), 20)
 
 	})
+
 }
 
 func TestHandleUpdate(t *testing.T) {
@@ -120,6 +324,79 @@ func TestHandleUpdate(t *testing.T) {
 	log.SetLogger(zap.New(zap.UseDevMode(true)))
 
 	t.Run("valid user", func(t *testing.T) {
+		// Create a fake client with a sample CR
+		s3UserResource := &s3v1alpha1.S3User{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:       "existing-valid-user",
+				Namespace:  "default",
+				Generation: 1,
+				Finalizers: []string{"s3.onyxia.sh/userFinalizer"},
+			},
+			Spec: s3v1alpha1.S3UserSpec{
+				S3InstanceRef:            "s3-operator/default",
+				AccessKey:                "existing-valid-user",
+				SecretName:               "existing-valid-user-secret",
+				Policies:                 []string{"admin"},
+				SecretFieldNameAccessKey: "accessKey",
+				SecretFieldNameSecretKey: "secretKey",
+			},
+		}
+
+		blockOwnerDeletion := true
+		controller := true
+		secretS3UserResource := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "existing-valid-user-secret",
+				Namespace: "default",
+				OwnerReferences: []metav1.OwnerReference{
+					{
+						APIVersion:         s3UserResource.APIVersion,
+						Kind:               s3UserResource.Kind,
+						Name:               s3UserResource.Name,
+						BlockOwnerDeletion: &blockOwnerDeletion,
+						Controller:         &controller,
+						UID:                s3UserResource.UID,
+					},
+				},
+			},
+			Data: map[string][]byte{
+				"accessKey": []byte("existing-valid-user"),
+				"secretKey": []byte("validSecret"),
+			},
+		}
+
+
+		// Add mock for s3Factory and client
+		testUtils := TestUtils.NewTestUtils()
+		testUtils.SetupMockedS3FactoryAndClient()
+		s3instanceResource, secretResource := testUtils.GenerateBasicS3InstanceAndSecret()
+		testUtils.SetupClient([]client.Object{s3instanceResource, secretResource, s3UserResource, secretS3UserResource})
+
+		// Create the reconciler
+		reconciler := &user_controller.S3UserReconciler{
+			Client:    testUtils.Client,
+			Scheme:    testUtils.Client.Scheme(),
+			S3factory: testUtils.S3Factory,
+		}
+
+		t.Run("no error", func(t *testing.T) {
+			// Call Reconcile function
+			req := ctrl.Request{NamespacedName: types.NamespacedName{Name: s3UserResource.Name, Namespace: s3UserResource.Namespace}}
+			_, err := reconciler.Reconcile(context.TODO(), req)
+			assert.NoError(t, err)
+			s3UserResourceUpdated := &s3v1alpha1.S3User{}
+			err = testUtils.Client.Get(context.TODO(), client.ObjectKey{
+				Namespace: "default",
+				Name:      "existing-valid-user",
+			}, s3UserResourceUpdated)
+			assert.NoError(t, err)
+			assert.Equal(t, s3v1alpha1.Reconciled, s3UserResourceUpdated.Status.Conditions[0].Reason)
+			assert.Equal(t, metav1.ConditionTrue, s3UserResourceUpdated.Status.Conditions[0].Status)
+			assert.Contains(t, s3UserResourceUpdated.Status.Conditions[0].Message, "User reconciled")
+		})
+	})
+
+	t.Run("valid user unlinked secret", func(t *testing.T) {
 		// Create a fake client with a sample CR
 		s3UserResource := &s3v1alpha1.S3User{
 			ObjectMeta: metav1.ObjectMeta{
@@ -149,6 +426,7 @@ func TestHandleUpdate(t *testing.T) {
 			},
 		}
 
+
 		// Add mock for s3Factory and client
 		testUtils := TestUtils.NewTestUtils()
 		testUtils.SetupMockedS3FactoryAndClient()
@@ -167,6 +445,15 @@ func TestHandleUpdate(t *testing.T) {
 			req := ctrl.Request{NamespacedName: types.NamespacedName{Name: s3UserResource.Name, Namespace: s3UserResource.Namespace}}
 			_, err := reconciler.Reconcile(context.TODO(), req)
 			assert.NoError(t, err)
+			s3UserResourceUpdated := &s3v1alpha1.S3User{}
+			err = testUtils.Client.Get(context.TODO(), client.ObjectKey{
+				Namespace: "default",
+				Name:      "existing-valid-user",
+			}, s3UserResourceUpdated)
+			assert.NoError(t, err)
+			assert.Equal(t, s3v1alpha1.Reconciled, s3UserResourceUpdated.Status.Conditions[0].Reason)
+			assert.Equal(t, metav1.ConditionTrue, s3UserResourceUpdated.Status.Conditions[0].Status)
+			assert.Contains(t, s3UserResourceUpdated.Status.Conditions[0].Message, "User reconciled")
 		})
 	})
 

@@ -289,6 +289,8 @@ func (r *S3UserReconciler) handleUpdate(
 	if len(userOwnedlinkedSecrets) == 0 && userUnlinkedSecret == nil {
 		logger.Info(
 			"No Secret associated to user found, user will be deleted from the S3 backend, then recreated with a secret",
+			"userResourceSpecSecretName",
+			userResource.Spec.SecretName,
 			"userResourceName",
 			userResource.Name,
 			"NamespacedName",
@@ -566,7 +568,7 @@ func (r *S3UserReconciler) handleUpdate(
 		req,
 		userResource,
 		s3v1alpha1.Reconciled,
-		"user reconciled",
+		"User reconciled",
 		err,
 	)
 }
@@ -757,12 +759,14 @@ func (r *S3UserReconciler) handleCreate(
 			err,
 		)
 	} else {
-		// If a secret already exists, but has a different S3User owner reference, then the creation should
+		// Case 3.1 : If a secret already exists, but has a different S3User owner reference, then the creation should
 		// fail with no requeue, and use the status to inform that the spec should be changed
 		for _, ref := range existingK8sSecret.OwnerReferences {
 			if ref.Kind == "S3User" {
 				if ref.UID != userResource.UID {
-					logger.Error(fmt.Errorf(""), "The secret matching the new S3User's spec is owned by a different S3User.",
+					err = fmt.Errorf("The secret matching the new S3User's spec is owned by a different S3User.")
+					logger.Error(err,
+						"S3User could not be created because of existing secret",
 						"conflictingUser",
 						ref.Name,
 						"secretName",
@@ -874,7 +878,7 @@ func (r *S3UserReconciler) handleCreate(
 				req,
 				userResource,
 				s3v1alpha1.Reconciled,
-				"User Reconciled",
+				"User reconciled",
 				err,
 			)
 		}
@@ -882,8 +886,9 @@ func (r *S3UserReconciler) handleCreate(
 		// Case 3.3 : they are not valid, and the operator is configured keep the existing secret
 		// The user will not be created, with no requeue and with two possible ways out : either toggle
 		// OverrideExistingSecret on, or delete the S3User whose credentials are not working anyway.
-		logger.Error(fmt.Errorf(""),
-			"A secret with the same name already exists ; as the operator is configured to NOT override any pre-existing secrets, this user will not be created on S3 backend until spec change (to target new secret), or until the operator configuration is changed to override existing secrets",
+		err = fmt.Errorf("A secret with the same name already exists ; as the operator is configured to NOT override nor read any pre-existing secrets, this user will not be created on S3 backend until spec change (to target new secret), or until the operator configuration is changed to override existing secrets")
+		logger.Error(err,
+			"S3User could not be created because of existing secret",
 			"secretName",
 			secret.Name,
 			"userResource",

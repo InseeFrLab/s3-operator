@@ -47,7 +47,9 @@ controllerManager:
 
 kubernetes:
   clusterDomain: cluster.local
+  # -- When creating an S3User, update existing secret with the generated secret key
   overrideExistingSecret: false
+  # -- When creating an S3User, read existing secret to retrieve the secret key
   readExistingSecret: false
 
 # -- Default S3 Instance

@@ -210,7 +210,7 @@ func main() {
 		Client:                  mgr.GetClient(),
 		Scheme:                  mgr.GetScheme(),
 		OverrideExistingSecret:  overrideExistingSecret,
-		ReadExistingSecret:  	 readExistingSecret,
+		ReadExistingSecret:      readExistingSecret,
 		ReconcilePeriod:         reconcilePeriod,
 		S3factory:               s3Factory,
 		ControllerHelper:        controllerHelper,

@@ -248,7 +248,7 @@ func (r *S3UserReconciler) handleUpdate(
 		)
 	}
 	ownedSecret := true
-	userOwnedlinkedSecrets, err := r.getUserLinkedSecrets(ctx, userResource)
+	userOwnedlinkedSecrets, userUnlinkedSecret, err := r.getUserLinkedSecrets(ctx, userResource)
 	if err != nil {
 		logger.Error(
 			err,
@@ -267,7 +267,6 @@ func (r *S3UserReconciler) handleUpdate(
 			err,
 		)
 	}
-	userUnlinkedSecret, err := r.getUserUnlinkedSecret(ctx, userResource.Namespace, userResource.Spec.SecretName, userResource.Name)
 	if err != nil {
 		logger.Error(
 			err,
@@ -287,7 +286,7 @@ func (r *S3UserReconciler) handleUpdate(
 		)
 	}
 	currentUserSecret := corev1.Secret{}
-	if len(userOwnedlinkedSecrets) == 0  && userUnlinkedSecret == nil {
+	if len(userOwnedlinkedSecrets) == 0 && userUnlinkedSecret == nil {
 		logger.Info(
 			"No Secret associated to user found, user will be deleted from the S3 backend, then recreated with a secret",
 			"userResourceName",
@@ -792,7 +791,7 @@ func (r *S3UserReconciler) handleCreate(
 					"userResource",
 					userResource.Name,
 					"NamespacedName",
-				req.NamespacedName.String())
+					req.NamespacedName.String())
 				var cpData = *&existingK8sSecret.Data
 				for k, v := range cpData {
 					if k == userResource.Spec.SecretFieldNameSecretKey {
@@ -896,7 +895,7 @@ func (r *S3UserReconciler) handleCreate(
 			req,
 			userResource,
 			s3v1alpha1.CreationFailure,
-			"Creation of user on S3 instance has failed necause secret contains invalid credentials. The user's spec should be changed to target a different secret",
+			"Creation of user on S3 instance has failed because secret contains invalid credentials. The user's spec should be changed to target a different secret",
 			err,
 		)
 	}

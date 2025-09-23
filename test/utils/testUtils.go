@@ -132,7 +132,7 @@ func (t *TestUtils) SetupDefaultS3instance() *s3v1alpha1.S3Instance {
 			Name:      "default",
 			Namespace: "s3-operator",
 		},
-		Status: s3v1alpha1.S3InstanceStatus{Conditions: []metav1.Condition{{Reason: s3v1alpha1.Reconciled}}},
+		Status: s3v1alpha1.S3InstanceStatus{Conditions: []metav1.Condition{{Type: s3v1alpha1.ConditionAvailable, Reason: s3v1alpha1.Reconciled}}},
 	}
 
 	return s3Instance
@@ -155,7 +155,7 @@ func (t *TestUtils) GenerateBasicS3InstanceAndSecret() (*s3v1alpha1.S3Instance, 
 			Name:      "default",
 			Namespace: "s3-operator",
 		},
-		Status: s3v1alpha1.S3InstanceStatus{Conditions: []metav1.Condition{{Reason: s3v1alpha1.Reconciled}}},
+		Status: s3v1alpha1.S3InstanceStatus{Conditions: []metav1.Condition{{Type: s3v1alpha1.ConditionAvailable, Reason: s3v1alpha1.Reconciled}}},
 	}
 
 	secretResource := &corev1.Secret{

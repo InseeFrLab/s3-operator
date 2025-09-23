@@ -44,6 +44,7 @@ func (c *ControllerHelper) SetReconciledCondition(
 	resource client.Object, // Accepts any Kubernetes object with conditions
 	conditions *[]metav1.Condition, // Conditions field reference (must be a pointer)
 	conditionType string, // The type of condition to set
+	status metav1.ConditionStatus,
 	reason string,
 	message string,
 	err error,
@@ -55,30 +56,21 @@ func (c *ControllerHelper) SetReconciledCondition(
 
 	if err != nil {
 		logger.Error(err, message, "NamespacedName", req.NamespacedName.String())
-		changed = meta.SetStatusCondition(
-			conditions,
-			metav1.Condition{
-				Type:               conditionType,
-				Status:             metav1.ConditionFalse,
-				ObservedGeneration: resource.GetGeneration(),
-				Reason:             reason,
-				Message:            fmt.Sprintf("%s: %s", message, err),
-			},
-		)
+		message = fmt.Sprintf("%s: %s", message, err)
+
 	} else {
 		logger.Info(message, "NamespacedName", req.NamespacedName.String())
-		changed = meta.SetStatusCondition(
-			conditions,
-			metav1.Condition{
-				Type:               conditionType,
-				Status:             metav1.ConditionTrue,
-				ObservedGeneration: resource.GetGeneration(),
-				Reason:             reason,
-				Message:            message,
-			},
-		)
 	}
-
+	changed = meta.SetStatusCondition(
+		conditions,
+		metav1.Condition{
+			Type:               conditionType,
+			Status:             status,
+			ObservedGeneration: resource.GetGeneration(),
+			Reason:             reason,
+			Message:            message,
+		},
+	)
 	if changed {
 		if errStatusUpdate := statusWriter.Update(ctx, resource); errStatusUpdate != nil {
 			logger.Error(errStatusUpdate, "Failed to update resource status", "ObjectKind", resource.GetObjectKind(), "NamespacedName", req.NamespacedName.String())

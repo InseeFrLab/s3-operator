@@ -147,7 +147,7 @@ func TestHandleDelete(t *testing.T) {
 		req := ctrl.Request{NamespacedName: types.NamespacedName{Name: s3instanceResource.Name, Namespace: s3instanceResource.Namespace}}
 		_, err := reconciler.Reconcile(context.TODO(), req)
 		assert.Error(t, err)
-		assert.EqualErrorf(t, err, "impossible de supprimer S3Instance, 1 Buckets utilisent cette instance", err.Error())
+		assert.EqualErrorf(t, err, "Cannot delete s3Instance as 1 Buckets are used on this instance", err.Error())
 	})
 
 	t.Run("error if one policy ressource still use it", func(t *testing.T) {
@@ -208,7 +208,7 @@ func TestHandleDelete(t *testing.T) {
 		req := ctrl.Request{NamespacedName: types.NamespacedName{Name: s3instanceResource.Name, Namespace: s3instanceResource.Namespace}}
 		_, err := reconciler.Reconcile(context.TODO(), req)
 		assert.Error(t, err)
-		assert.EqualErrorf(t, err, "impossible de supprimer S3Instance, 1 Policies utilisent cette instance", err.Error())
+		assert.EqualErrorf(t, err, "Cannot delete s3Instance as 1 Policies are used on this instance", err.Error())
 	})
 
 	t.Run("error if one path ressource still use it", func(t *testing.T) {
@@ -269,7 +269,7 @@ func TestHandleDelete(t *testing.T) {
 		req := ctrl.Request{NamespacedName: types.NamespacedName{Name: s3instanceResource.Name, Namespace: s3instanceResource.Namespace}}
 		_, err := reconciler.Reconcile(context.TODO(), req)
 		assert.Error(t, err)
-		assert.EqualErrorf(t, err, "impossible de supprimer S3Instance, 1 Paths utilisent cette instance", err.Error())
+		assert.EqualErrorf(t, err, "Cannot delete s3Instance as 1 Paths are used on this instance", err.Error())
 	})
 
 	t.Run("error if one user ressource still use it", func(t *testing.T) {
@@ -330,6 +330,6 @@ func TestHandleDelete(t *testing.T) {
 		req := ctrl.Request{NamespacedName: types.NamespacedName{Name: s3instanceResource.Name, Namespace: s3instanceResource.Namespace}}
 		_, err := reconciler.Reconcile(context.TODO(), req)
 		assert.Error(t, err)
-		assert.EqualErrorf(t, err, "impossible de supprimer S3Instance, 1 S3Users utilisent cette instance", err.Error())
+		assert.EqualErrorf(t, err, "Cannot delete s3Instance as 1 S3Users are used on this instance", err.Error())
 	})
 }

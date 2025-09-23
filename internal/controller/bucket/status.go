@@ -19,12 +19,79 @@ package bucket_controller
 import (
 	"context"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	s3v1alpha1 "github.com/InseeFrLab/s3-operator/api/v1alpha1"
 
 	ctrl "sigs.k8s.io/controller-runtime"
 )
 
-func (r *BucketReconciler) SetReconciledCondition(
+func (r *BucketReconciler) SetProgressingCondition(
+	ctx context.Context,
+	req ctrl.Request,
+	bucketResource *s3v1alpha1.Bucket,
+	status metav1.ConditionStatus,
+	reason string,
+	message string,
+) (ctrl.Result, error) {
+	return r.ControllerHelper.SetReconciledCondition(
+		ctx,
+		r.Status(),
+		req,
+		bucketResource,
+		&bucketResource.Status.Conditions,
+		s3v1alpha1.ConditionProgressing,
+		status,
+		reason,
+		message,
+		nil,
+		r.ReconcilePeriod,
+	)
+}
+func (r *BucketReconciler) SetAvailableCondition(
+	ctx context.Context,
+	req ctrl.Request,
+	bucketResource *s3v1alpha1.Bucket,
+	reason string,
+	message string,
+) (ctrl.Result, error) {
+	return r.ControllerHelper.SetReconciledCondition(
+		ctx,
+		r.Status(),
+		req,
+		bucketResource,
+		&bucketResource.Status.Conditions,
+		s3v1alpha1.ConditionAvailable,
+		metav1.ConditionTrue,
+		reason,
+		message,
+		nil,
+		r.ReconcilePeriod,
+	)
+}
+func (r *BucketReconciler) SetDegradedCondition(
+	ctx context.Context,
+	req ctrl.Request,
+	bucketResource *s3v1alpha1.Bucket,
+	status metav1.ConditionStatus,
+	reason string,
+	message string,
+	err error,
+) (ctrl.Result, error) {
+	return r.ControllerHelper.SetReconciledCondition(
+		ctx,
+		r.Status(),
+		req,
+		bucketResource,
+		&bucketResource.Status.Conditions,
+		s3v1alpha1.ConditionDegraded,
+		status,
+		reason,
+		message,
+		err,
+		r.ReconcilePeriod,
+	)
+}
+func (r *BucketReconciler) SetRejectedCondition(
 	ctx context.Context,
 	req ctrl.Request,
 	bucketResource *s3v1alpha1.Bucket,
@@ -38,7 +105,8 @@ func (r *BucketReconciler) SetReconciledCondition(
 		req,
 		bucketResource,
 		&bucketResource.Status.Conditions,
-		s3v1alpha1.ConditionReconciled,
+		s3v1alpha1.ConditionRejected,
+		metav1.ConditionFalse,
 		reason,
 		message,
 		err,

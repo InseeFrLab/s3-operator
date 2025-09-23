@@ -20,9 +20,9 @@ import (
 	"context"
 	"fmt"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	s3v1alpha1 "github.com/InseeFrLab/s3-operator/api/v1alpha1"
@@ -33,24 +33,16 @@ func (r *PathReconciler) handleDeletion(
 	req reconcile.Request,
 	pathResource *s3v1alpha1.Path,
 ) (reconcile.Result, error) {
-	logger := log.FromContext(ctx)
 
 	if controllerutil.ContainsFinalizer(pathResource, pathFinalizer) {
-		if err := r.finalizePath(ctx, pathResource); err != nil {
-			logger.Error(
-				err,
-				"An error occurred when attempting to finalize the path",
-				"path",
-				pathResource.Name,
-				"NamespacedName",
-				req.NamespacedName.String(),
-			)
-			return r.SetReconciledCondition(
+		if err := r.finalizePath(ctx, req, pathResource); err != nil {
+			return r.SetDegradedCondition(
 				ctx,
 				req,
 				pathResource,
+				metav1.ConditionFalse,
 				s3v1alpha1.DeletionFailure,
-				"Path deletion has failed",
+				fmt.Sprintf("Path %s deletion has failed", pathResource.Name),
 				err,
 			)
 		}
@@ -59,12 +51,13 @@ func (r *PathReconciler) handleDeletion(
 		// removed, the object will be deleted.
 
 		if ok := controllerutil.RemoveFinalizer(pathResource, pathFinalizer); !ok {
-			logger.Info(
-				"Failed to remove finalizer for pathResource",
-				"pathResource",
-				pathResource.Name,
-				"NamespacedName",
-				req.NamespacedName.String(),
+			r.SetProgressingCondition(
+				ctx,
+				req,
+				pathResource,
+				metav1.ConditionFalse,
+				s3v1alpha1.InternalError,
+				fmt.Sprintf("Failed to remove finalizer for path %s", pathResource.Name),
 			)
 			return ctrl.Result{Requeue: true}, nil
 		}
@@ -75,14 +68,16 @@ func (r *PathReconciler) handleDeletion(
 		// your changes to the latest version and try again" which would re-trigger the reconciliation
 		// if we try to update it again in the following operations
 		if err := r.Update(ctx, pathResource); err != nil {
-			logger.Error(
+			r.SetDegradedCondition(
+				ctx,
+				req,
+				pathResource,
+				metav1.ConditionFalse,
+				s3v1alpha1.K8sApiError,
+				fmt.Sprintf("An error occured when removing finalizer from path %s", pathResource.Name),
 				err,
-				"An error occurred when removing finalizer from pathResource",
-				"pathResource",
-				pathResource.Name,
-				"NamespacedName",
-				req.NamespacedName.String(),
 			)
+
 			return ctrl.Result{}, err
 		}
 
@@ -90,8 +85,7 @@ func (r *PathReconciler) handleDeletion(
 	return ctrl.Result{}, nil
 }
 
-func (r *PathReconciler) finalizePath(ctx context.Context, pathResource *s3v1alpha1.Path) error {
-	logger := log.FromContext(ctx)
+func (r *PathReconciler) finalizePath(ctx context.Context, req reconcile.Request, pathResource *s3v1alpha1.Path) error {
 
 	s3Client, err := r.S3Instancehelper.GetS3ClientForRessource(
 		ctx,
@@ -103,7 +97,15 @@ func (r *PathReconciler) finalizePath(ctx context.Context, pathResource *s3v1alp
 	)
 
 	if err != nil {
-		logger.Error(err, "An error occurred while getting s3Client")
+		r.SetDegradedCondition(
+			ctx,
+			req,
+			pathResource,
+			metav1.ConditionUnknown,
+			s3v1alpha1.Unreachable,
+			"Failed to generate s3client from instance",
+			err,
+		)
 		return err
 	}
 
@@ -113,14 +115,16 @@ func (r *PathReconciler) finalizePath(ctx context.Context, pathResource *s3v1alp
 
 			pathExists, err := s3Client.PathExists(pathResource.Spec.BucketName, path)
 			if err != nil {
-				logger.Error(
+				r.SetDegradedCondition(
+					ctx,
+					req,
+					pathResource,
+					metav1.ConditionFalse,
+					s3v1alpha1.DeletionFailure,
+					fmt.Sprintf("An error occured while finalizing path %s, failed to check path's existence on bucket %s", pathResource.Name, pathResource.Spec.BucketName),
 					err,
-					"finalize : an error occurred while checking a path's existence on a bucket",
-					"bucket",
-					pathResource.Spec.BucketName,
-					"path",
-					path,
 				)
+
 			}
 
 			if pathExists {

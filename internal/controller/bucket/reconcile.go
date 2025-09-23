@@ -21,10 +21,9 @@ import (
 	"fmt"
 
 	s3v1alpha1 "github.com/InseeFrLab/s3-operator/api/v1alpha1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	k8sapierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/api/meta"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -60,28 +59,15 @@ func (r *BucketReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 
 	// Let's just set the status as Unknown when no status are available
 	if len(bucketResource.Status.Conditions) == 0 {
-		meta.SetStatusCondition(
-			&bucketResource.Status.Conditions,
-			metav1.Condition{
-				Type:               s3v1alpha1.ConditionReconciled,
-				Status:             metav1.ConditionUnknown,
-				ObservedGeneration: bucketResource.Generation,
-				Reason:             s3v1alpha1.Reconciling,
-				Message:            "Starting reconciliation",
-			},
-		)
-		if err = r.Status().Update(ctx, bucketResource); err != nil {
-			logger.Error(
-				err,
-				"Failed to update bucketRessource status",
-				"bucketName",
-				bucketResource.Spec.Name,
-				"NamespacedName",
-				req.NamespacedName.String(),
-			)
+		_, err = r.SetProgressingCondition(ctx,
+						   req,
+						   bucketResource,
+						   metav1.ConditionUnknown,
+						   s3v1alpha1.Reconciling,
+						   fmt.Sprintf("Newly discovered resource %s", bucketResource.Name))
+		if err != nil {
 			return ctrl.Result{}, err
 		}
-
 		// Let's re-fetch the bucketResource Custom Resource after update the status
 		// so that we have the latest state of the resource on the cluster and we will avoid
 		// raise the issue "the object has been modified, please apply
@@ -102,41 +88,44 @@ func (r *BucketReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 
 	// Add finalizer for this CR
 	if !controllerutil.ContainsFinalizer(bucketResource, bucketFinalizer) {
-		logger.Info("Adding finalizer to bucket resource", "bucketName",
-			bucketResource.Spec.Name, "NamespacedName", req.NamespacedName.String())
+		r.SetProgressingCondition(ctx,
+					  req,
+					  bucketResource,
+					  metav1.ConditionTrue,
+					  s3v1alpha1.Reconciling,
+					  fmt.Sprintf("Adding finalizer to bucket resource %s", bucketResource.Spec.Name))
 		if ok := controllerutil.AddFinalizer(bucketResource, bucketFinalizer); !ok {
-			logger.Error(
-				err,
-				"Failed to add finalizer into bucket resource",
-				"bucketName",
-				bucketResource.Spec.Name,
-				"NamespacedName",
-				req.NamespacedName.String(),
-			)
+			r.SetDegradedCondition(ctx,
+					       req,
+					       bucketResource,
+					       metav1.ConditionFalse,
+					       s3v1alpha1.InternalError,
+					       fmt.Sprintf("Failed to add finalizer to bucket resource %s", bucketResource.Spec.Name),
+					       err)
 			return ctrl.Result{Requeue: true}, nil
 		}
 
 		if err := r.Update(ctx, bucketResource); err != nil {
-			logger.Error(
-				err,
-				"An error occurred when adding finalizer on bucketResource",
-				"bucketName",
-				bucketResource.Spec.Name,
-				"NamespacedName",
-				req.NamespacedName.String(),
-			)
+			r.SetDegradedCondition(ctx,
+					       req,
+					       bucketResource,
+					       metav1.ConditionFalse,
+					       s3v1alpha1.K8sApiError,
+					       fmt.Sprintf("An error occurred when adding finalizer on bucket resource %s", bucketResource.Spec.Name),
+					       err)
+
 			return ctrl.Result{}, err
 		}
 
 		if err := r.Get(ctx, req.NamespacedName, bucketResource); err != nil {
-			logger.Error(
-				err,
-				"Failed to re-fetch bucketResource",
-				"bucketName",
-				bucketResource.Spec.Name,
-				"NamespacedName",
-				req.NamespacedName.String(),
-			)
+			r.SetDegradedCondition(ctx,
+					       req,
+					       bucketResource,
+					       metav1.ConditionFalse,
+					       s3v1alpha1.K8sApiError,
+					       fmt.Sprintf("Failed to re-fetch bucket resource %s", bucketResource.Spec.Name),
+					       err)
+
 			return ctrl.Result{}, err
 		}
 	}
@@ -144,13 +133,16 @@ func (r *BucketReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	// // Managing bucket deletion with a finalizer
 	// // REF : https://sdk.operatorframework.io/docs/building-operators/golang/advanced-topics/#external-resources
 	if bucketResource.GetDeletionTimestamp() != nil {
-		logger.Info("bucketResource have been marked for deletion", "bucketName",
-			bucketResource.Spec.Name,
-			"NamespacedName",
-			req.NamespacedName.String())
+		r.SetProgressingCondition(ctx,
+					  req,
+					  bucketResource,
+					  metav1.ConditionTrue,
+					  s3v1alpha1.Reconciling,
+					  fmt.Sprintf("Bucket resource have been marked for deletion %s", bucketResource.Spec.Name))
 		return r.handleDeletion(ctx, req, bucketResource)
 	}
 
+	r.SetProgressingCondition(ctx, req, bucketResource, metav1.ConditionTrue, s3v1alpha1.Reconciling, fmt.Sprintf("Starting reconciliation of bucket %s", bucketResource.Name))
 	return r.handleReconciliation(ctx, req, bucketResource)
 
 }
@@ -160,7 +152,6 @@ func (r *BucketReconciler) handleReconciliation(
 	req reconcile.Request,
 	bucketResource *s3v1alpha1.Bucket,
 ) (reconcile.Result, error) {
-	logger := log.FromContext(ctx)
 
 	s3Client, err := r.S3Instancehelper.GetS3ClientForRessource(
 		ctx,
@@ -171,11 +162,11 @@ func (r *BucketReconciler) handleReconciliation(
 		bucketResource.Spec.S3InstanceRef,
 	)
 	if err != nil {
-		logger.Error(err, "an error occurred while getting s3Client")
-		return r.SetReconciledCondition(
+		return r.SetDegradedCondition(
 			ctx,
 			req,
 			bucketResource,
+			metav1.ConditionUnknown,
 			s3v1alpha1.Unreachable,
 			"Failed to generate s3client from instance",
 			err,
@@ -186,20 +177,13 @@ func (r *BucketReconciler) handleReconciliation(
 	// Check bucket existence on the S3 server
 	found, err := s3Client.BucketExists(bucketResource.Spec.Name)
 	if err != nil {
-		logger.Error(
-			err,
-			"An error occurred while checking the existence of a bucket",
-			"bucketName",
-			bucketResource.Spec.Name,
-			"NamespacedName",
-			req.NamespacedName.String(),
-		)
-		return r.SetReconciledCondition(
+		return r.SetDegradedCondition(
 			ctx,
 			req,
 			bucketResource,
+			metav1.ConditionUnknown,
 			s3v1alpha1.Unreachable,
-			"Error while checking if bucket already exist",
+			fmt.Sprintf("Error while checking if bucket %s already exist", bucketResource.Spec.Name),
 			err,
 		)
 
@@ -219,7 +203,6 @@ func (r *BucketReconciler) handleUpdate(
 	req reconcile.Request,
 	bucketResource *s3v1alpha1.Bucket,
 ) (reconcile.Result, error) {
-	logger := log.FromContext(ctx)
 
 	s3Client, err := r.S3Instancehelper.GetS3ClientForRessource(
 		ctx,
@@ -230,18 +213,11 @@ func (r *BucketReconciler) handleUpdate(
 		bucketResource.Spec.S3InstanceRef,
 	)
 	if err != nil {
-		logger.Error(
-			err,
-			"An error occurred while getting s3Client for bucket ressource",
-			"bucketName",
-			bucketResource.Spec.Name,
-			"NamespacedName",
-			req.NamespacedName.String(),
-		)
-		return r.SetReconciledCondition(
+		return r.SetDegradedCondition(
 			ctx,
 			req,
 			bucketResource,
+			metav1.ConditionUnknown,
 			s3v1alpha1.Unreachable,
 			"Failed to generate s3client from instance",
 			err,
@@ -254,20 +230,13 @@ func (r *BucketReconciler) handleUpdate(
 	// Checking effectiveQuota existence on the bucket
 	effectiveQuota, err := s3Client.GetQuota(bucketResource.Spec.Name)
 	if err != nil {
-		logger.Error(
-			err,
-			"An error occurred while checking the quota for bucket ressource",
-			"bucketName",
-			bucketResource.Spec.Name,
-			"NamespacedName",
-			req.NamespacedName.String(),
-		)
-		return r.SetReconciledCondition(
+		return r.SetDegradedCondition(
 			ctx,
 			req,
 			bucketResource,
+			metav1.ConditionUnknown,
 			s3v1alpha1.Unreachable,
-			"Checking quota has failed",
+			fmt.Sprintf("Checking quota of bucket %s has failed", bucketResource.Spec.Name),
 			err,
 		)
 	}
@@ -278,40 +247,26 @@ func (r *BucketReconciler) handleUpdate(
 	// Choosing between override / default
 	quotaToResetTo, convertionSucceed := bucketResource.Spec.Quota.Override.AsInt64()
 	if !convertionSucceed {
-		logger.Error(
-			err,
-			"An error occurred while getting quotas override as int64 for ressource",
-			"bucketName",
-			bucketResource.Spec.Name,
-			"NamespacedName",
-			req.NamespacedName.String(),
-		)
-		return r.SetReconciledCondition(
+		return r.SetDegradedCondition(
 			ctx,
 			req,
 			bucketResource,
-			s3v1alpha1.Unreachable,
-			"An error occurred while creating bucket",
+			metav1.ConditionFalse,
+			s3v1alpha1.InternalError,
+			fmt.Sprintf("An error occurred while getting overrided quotas as int64 for ressource %s", bucketResource.Spec.Name),
 			err,
 		)
 	}
 	if quotaToResetTo == 0 {
 		quotaToResetTo, convertionSucceed = bucketResource.Spec.Quota.Default.AsInt64()
 		if !convertionSucceed {
-			logger.Error(
-				err,
-				"An error occurred while getting default quotas as int64 for ressource",
-				"bucketName",
-				bucketResource.Spec.Name,
-				"NamespacedName",
-				req.NamespacedName.String(),
-			)
-			return r.SetReconciledCondition(
+			return r.SetDegradedCondition(
 				ctx,
 				req,
 				bucketResource,
-				s3v1alpha1.Unreachable,
-				"An error occurred while creating bucket",
+				metav1.ConditionFalse,
+				s3v1alpha1.InternalError,
+				fmt.Sprintf("An error occurred while getting default quotas as int64 for ressource %s", bucketResource.Spec.Name),
 				err,
 			)
 		}
@@ -320,23 +275,18 @@ func (r *BucketReconciler) handleUpdate(
 	if effectiveQuota != quotaToResetTo {
 		err = s3Client.SetQuota(bucketResource.Spec.Name, quotaToResetTo)
 		if err != nil {
-			logger.Error(
-				err,
-				"An error occurred while resetting the quota for bucket ressource",
-				"bucketName",
-				bucketResource.Spec.Name,
-				"NamespacedName",
-				req.NamespacedName.String(),
-			)
-			return r.SetReconciledCondition(
+
+			return r.SetDegradedCondition(
 				ctx,
 				req,
 				bucketResource,
+				metav1.ConditionFalse,
 				s3v1alpha1.Unreachable,
 				fmt.Sprintf(
-					"The quota update (%v => %v) has failed",
+					"The quota update (%v => %v) has failed for bucket %s",
 					effectiveQuota,
 					quotaToResetTo,
+					bucketResource.Spec.Name,
 				),
 				err,
 			)
@@ -353,22 +303,14 @@ func (r *BucketReconciler) handleUpdate(
 	for _, pathInCr := range bucketResource.Spec.Paths {
 		pathExists, err := s3Client.PathExists(bucketResource.Spec.Name, pathInCr)
 		if err != nil {
-			logger.Error(
-				err,
-				"An error occurred while checking a path's existence for bucket ressource",
-				"path",
-				pathInCr,
-				"bucketName",
-				bucketResource.Spec.Name,
-				"NamespacedName",
-				req.NamespacedName.String(),
-			)
-			return r.SetReconciledCondition(
+
+			return r.SetDegradedCondition(
 				ctx,
 				req,
 				bucketResource,
+				metav1.ConditionFalse,
 				s3v1alpha1.Unreachable,
-				fmt.Sprintf("The check for path [%s] in bucket has failed", pathInCr),
+				fmt.Sprintf("The check for path [%s] in bucket %s has failed", pathInCr, bucketResource.Spec.Name),
 				err,
 			)
 		}
@@ -376,35 +318,25 @@ func (r *BucketReconciler) handleUpdate(
 		if !pathExists {
 			err = s3Client.CreatePath(bucketResource.Spec.Name, pathInCr)
 			if err != nil {
-				logger.Error(
-					err,
-					"An error occurred while creating a path for bucket ressource",
-					"path",
-					pathInCr,
-					"bucketName",
-					bucketResource.Spec.Name,
-					"NamespacedName",
-					req.NamespacedName.String(),
-				)
-				return r.SetReconciledCondition(
+				return r.SetDegradedCondition(
 					ctx,
 					req,
 					bucketResource,
+					metav1.ConditionFalse,
 					s3v1alpha1.Unreachable,
-					fmt.Sprintf("The creation of path [%s] in bucket has failed", pathInCr),
+					fmt.Sprintf("The creation of path [%s] in bucket %s has failed", pathInCr, bucketResource.Spec.Name),
 					err,
 				)
 			}
 		}
 	}
 
-	return r.SetReconciledCondition(
+	return r.SetAvailableCondition(
 		ctx,
 		req,
 		bucketResource,
 		s3v1alpha1.Reconciled,
 		"Bucket reconciled",
-		nil,
 	)
 }
 
@@ -413,7 +345,6 @@ func (r *BucketReconciler) handleCreation(
 	req reconcile.Request,
 	bucketResource *s3v1alpha1.Bucket,
 ) (reconcile.Result, error) {
-	logger := log.FromContext(ctx)
 
 	s3Client, err := r.S3Instancehelper.GetS3ClientForRessource(
 		ctx,
@@ -424,15 +355,7 @@ func (r *BucketReconciler) handleCreation(
 		bucketResource.Spec.S3InstanceRef,
 	)
 	if err != nil {
-		logger.Error(
-			err,
-			"An error occurred while getting s3Client for bucket ressource",
-			"bucketName",
-			bucketResource.Spec.Name,
-			"NamespacedName",
-			req.NamespacedName.String(),
-		)
-		return r.SetReconciledCondition(
+		return r.SetRejectedCondition(
 			ctx,
 			req,
 			bucketResource,
@@ -445,20 +368,13 @@ func (r *BucketReconciler) handleCreation(
 	// Bucket creation
 	err = s3Client.CreateBucket(bucketResource.Spec.Name)
 	if err != nil {
-		logger.Error(
-			err,
-			"An error occurred while creating bucket ressource",
-			"bucketName",
-			bucketResource.Spec.Name,
-			"NamespacedName",
-			req.NamespacedName.String(),
-		)
-		return r.SetReconciledCondition(
+
+		return r.SetRejectedCondition(
 			ctx,
 			req,
 			bucketResource,
 			s3v1alpha1.CreationFailure,
-			"An error occurred while creating bucket",
+			fmt.Sprintf("An error occurred while creating bucket %s", bucketResource.Spec.Name),
 			err,
 		)
 	}
@@ -466,37 +382,23 @@ func (r *BucketReconciler) handleCreation(
 	// Setting quotas
 	quotas, convertionSucceed := bucketResource.Spec.Quota.Default.AsInt64()
 	if !convertionSucceed {
-		logger.Error(
-			err,
-			"An error occurred while getting quotas as int64 for ressource",
-			"bucketName",
-			bucketResource.Spec.Name,
-			"NamespacedName",
-			req.NamespacedName.String(),
-		)
-		return r.SetReconciledCondition(
+		return r.SetDegradedCondition(
 			ctx,
 			req,
 			bucketResource,
-			s3v1alpha1.CreationFailure,
-			"An error occurred while creating bucket",
+			metav1.ConditionFalse,
+			s3v1alpha1.InternalError,
+			fmt.Sprintf("An error occurred while getting default quotas as int64 for ressource %s", bucketResource.Spec.Name),
 			err,
 		)
 	}
 	err = s3Client.SetQuota(bucketResource.Spec.Name, quotas)
 	if err != nil {
-		logger.Error(
-			err,
-			"An error occurred while setting quota for bucket ressource",
-			"bucketName",
-			bucketResource.Spec.Name,
-			"NamespacedName",
-			req.NamespacedName.String(),
-		)
-		return r.SetReconciledCondition(
+		return r.SetDegradedCondition(
 			ctx,
 			req,
 			bucketResource,
+			metav1.ConditionFalse,
 			s3v1alpha1.Unreachable,
 			fmt.Sprintf(
 				"Setting a quota of [%v] on bucket [%s] has failed",
@@ -511,33 +413,23 @@ func (r *BucketReconciler) handleCreation(
 	for _, pathInCr := range bucketResource.Spec.Paths {
 		err = s3Client.CreatePath(bucketResource.Spec.Name, pathInCr)
 		if err != nil {
-			logger.Error(
-				err,
-				"An error occurred while creating path for bucket ressource",
-				"path",
-				pathInCr,
-				"bucketName",
-				bucketResource.Spec.Name,
-				"NamespacedName",
-				req.NamespacedName.String(),
-			)
-			return r.SetReconciledCondition(
+			return r.SetDegradedCondition(
 				ctx,
 				req,
 				bucketResource,
+				metav1.ConditionFalse,
 				s3v1alpha1.Unreachable,
-				fmt.Sprintf("Creation for path [%s] in bucket has failed", pathInCr),
+				fmt.Sprintf("Creation for path [%s] in bucket %s has failed", pathInCr, bucketResource.Spec.Name),
 				err,
 			)
 		}
 	}
 
-	return r.SetReconciledCondition(
+	return r.SetAvailableCondition(
 		ctx,
 		req,
 		bucketResource,
 		s3v1alpha1.Reconciled,
 		"Bucket reconciled",
-		nil,
 	)
 }

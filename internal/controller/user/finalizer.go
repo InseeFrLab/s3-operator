@@ -18,10 +18,11 @@ package user_controller
 
 import (
 	"context"
+	"fmt"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	s3v1alpha1 "github.com/InseeFrLab/s3-operator/api/v1alpha1"
@@ -29,9 +30,9 @@ import (
 
 func (r *S3UserReconciler) finalizeS3User(
 	ctx context.Context,
+	req reconcile.Request,
 	userResource *s3v1alpha1.S3User,
 ) error {
-	logger := log.FromContext(ctx)
 	s3Client, err := r.S3Instancehelper.GetS3ClientForRessource(
 		ctx,
 		r.Client,
@@ -41,7 +42,15 @@ func (r *S3UserReconciler) finalizeS3User(
 		userResource.Spec.S3InstanceRef,
 	)
 	if err != nil {
-		logger.Error(err, "An error occurred while getting s3Client")
+		r.SetDegradedCondition(
+			ctx,
+			req,
+			userResource,
+			metav1.ConditionUnknown,
+			s3v1alpha1.Unreachable,
+			"Failed to generate s3client from instance",
+			err,
+		)
 		return err
 	}
 	if s3Client.GetConfig().S3UserDeletionEnabled {
@@ -55,66 +64,43 @@ func (r *S3UserReconciler) handleDeletion(
 	req reconcile.Request,
 	userResource *s3v1alpha1.S3User,
 ) (reconcile.Result, error) {
-	logger := log.FromContext(ctx)
 
 	if controllerutil.ContainsFinalizer(userResource, userFinalizer) {
 		// Run finalization logic for S3UserFinalizer. If the finalization logic fails, don't remove the finalizer so that we can retry during the next reconciliation.
-		if err := r.finalizeS3User(ctx, userResource); err != nil {
-			logger.Error(
-				err,
-				"An error occurred when attempting to finalize the user",
-				"userResource",
-				userResource.Name,
-				"NamespacedName",
-				req.NamespacedName.String(),
-			)
-			return r.SetReconciledCondition(
+		if err := r.finalizeS3User(ctx, req, userResource); err != nil {
+			return r.SetDegradedCondition(
 				ctx,
 				req,
 				userResource,
+				metav1.ConditionFalse,
 				s3v1alpha1.DeletionFailure,
-				"user deletion has failed",
+				fmt.Sprintf("User %s deletion has failed", userResource.Name),
 				err,
 			)
 		}
 
 		userOwnedlinkedSecrets, _, err := r.getUserLinkedSecrets(ctx, userResource)
 		if err != nil {
-			logger.Error(
-				err,
-				"An error occurred when trying to list secret linked to user",
-				"userResourceName",
-				userResource.Name,
-				"NamespacedName",
-				req.NamespacedName.String(),
-			)
-			return r.SetReconciledCondition(
+
+			return r.SetDegradedCondition(
 				ctx,
 				req,
 				userResource,
+				metav1.ConditionFalse,
 				s3v1alpha1.DeletionFailure,
-				"An error occurred when trying to list secret linked to user",
+				fmt.Sprintf("An error occurred when trying to list secret linked to user %s", userResource.Name),
 				err,
 			)
 		}
 		for _, linkedSecret := range userOwnedlinkedSecrets {
 			if err := r.deleteSecret(ctx, &linkedSecret); err != nil {
-				logger.Error(
-					err,
-					"An error occurred when trying to list secret linked to user",
-					"userResourceName",
-					userResource.Name,
-					"NamespacedName",
-					req.NamespacedName.String(),
-					"secretName",
-					linkedSecret.Name,
-				)
-				return r.SetReconciledCondition(
+				return r.SetDegradedCondition(
 					ctx,
 					req,
 					userResource,
+					metav1.ConditionFalse,
 					s3v1alpha1.DeletionFailure,
-					"Deletion of secret associated to user have failed",
+					fmt.Sprintf("Deletion of secret %s associated to user %s have failed", linkedSecret.Name, userResource.Name),
 					err,
 				)
 			}
@@ -123,12 +109,13 @@ func (r *S3UserReconciler) handleDeletion(
 
 		//Remove userFinalizer. Once all finalizers have been removed, the object will be deleted.
 		if ok := controllerutil.RemoveFinalizer(userResource, userFinalizer); !ok {
-			logger.Info(
-				"Failed to remove finalizer for user resource",
-				"userResource",
-				userResource.Name,
-				"NamespacedName",
-				req.NamespacedName.String(),
+			r.SetProgressingCondition(
+				ctx,
+				req,
+				userResource,
+				metav1.ConditionFalse,
+				s3v1alpha1.InternalError,
+				fmt.Sprintf("Failed to remove finalizer for user %s", userResource.Name),
 			)
 			return ctrl.Result{Requeue: true}, nil
 		}
@@ -139,13 +126,14 @@ func (r *S3UserReconciler) handleDeletion(
 		// "the object has been modified; please apply your changes to the latest version and try again" error)
 		err = r.Update(ctx, userResource)
 		if err != nil {
-			logger.Error(
+			r.SetDegradedCondition(
+				ctx,
+				req,
+				userResource,
+				metav1.ConditionFalse,
+				s3v1alpha1.K8sApiError,
+				fmt.Sprintf("An error occured when removing finalizer from user %s", userResource.Name),
 				err,
-				"An error occurred when removing finalizer from policy",
-				"userResource",
-				userResource.Name,
-				"NamespacedName",
-				req.NamespacedName.String(),
 			)
 			return ctrl.Result{}, err
 		}

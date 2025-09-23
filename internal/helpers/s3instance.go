@@ -69,8 +69,10 @@ func (s3InstanceHelper *S3InstanceHelper) GetS3ClientForRessource(
 		return nil, fmt.Errorf("S3Instance %s not found", s3InstanceInfo.name)
 	}
 
-	if s3Instance.Status.Conditions[0].Reason != s3v1alpha1.Reconciled {
-		return nil, fmt.Errorf("S3instance is not in a ready state")
+	var conditions = s3Instance.Status.Conditions
+	var lastCondition = conditions[len(conditions) - 1]
+	if lastCondition.Type != s3v1alpha1.ConditionAvailable {
+		return nil, fmt.Errorf("S3instance is not in a ready state: %s", lastCondition.Type)
 	}
 
 	return s3InstanceHelper.GetS3ClientFromS3Instance(ctx, client, s3factory, s3Instance)

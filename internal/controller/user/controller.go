@@ -44,6 +44,7 @@ type S3UserReconciler struct {
 	client.Client
 	Scheme                  *runtime.Scheme
 	OverrideExistingSecret  bool
+	ReadExistingSecret      bool
 	ReconcilePeriod         time.Duration
 	S3factory               s3factory.S3Factory
 	ControllerHelper        *helpers.ControllerHelper

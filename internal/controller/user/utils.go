@@ -104,6 +104,39 @@ func (r *S3UserReconciler) getUserLinkedSecrets(
 	return userSecretList, nil
 }
 
+
+func (r *S3UserReconciler) getUserUnlinkedSecret(
+	ctx context.Context,
+	namespace string,
+	secretNameA string,
+	secretNameB string,
+) (*corev1.Secret, error) {
+	logger := log.FromContext(ctx)
+	// Listing every secrets in the S3User's namespace, as a first step
+	// to get the actual secret matching the S3User proper.
+	// TODO : proper label matching ?
+	secretsList := &corev1.SecretList{}
+	err := r.List(ctx, secretsList, client.InNamespace(namespace))
+	if err != nil {
+		logger.Error(err, "An error occurred while listing the secrets in user's namespace")
+		return nil, fmt.Errorf("SecretListingFailed")
+	}
+	if len(secretsList.Items) == 0 {
+		logger.Info("The user's namespace doesn't appear to contain any secret")
+		return nil, nil
+	}
+
+	var secretB *corev1.Secret
+	for _, secret := range secretsList.Items {
+		if secret.Name == secretNameA {
+			return &secret, nil
+		} else if secret.Name == secretNameB {
+			secretB = &secret
+		}
+	}
+	return secretB, nil
+}
+
 func (r *S3UserReconciler) deleteSecret(ctx context.Context, secret *corev1.Secret) error {
 	logger := log.FromContext(ctx)
 	logger.Info("the secret named " + secret.Name + " will be deleted")

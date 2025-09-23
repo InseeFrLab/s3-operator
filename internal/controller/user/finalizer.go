@@ -78,7 +78,7 @@ func (r *S3UserReconciler) handleDeletion(
 			)
 		}
 
-		userOwnedlinkedSecrets, err := r.getUserLinkedSecrets(ctx, userResource)
+		userOwnedlinkedSecrets, _, err := r.getUserLinkedSecrets(ctx, userResource)
 		if err != nil {
 			logger.Error(
 				err,

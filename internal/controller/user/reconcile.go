@@ -440,11 +440,11 @@ func (r *S3UserReconciler) handleUpdate(
 			}
 		} else {
 			r.SetProgressingCondition(ctx,
-			  req,
-			  userResource,
-			  metav1.ConditionTrue,
-			  s3v1alpha1.Reconciling,
-			  fmt.Sprintf("The user %s will be deleted from the S3 backend, then recreated (through another reconcile), the secret %s will be kept.", userResource.Name, currentUserSecret.Name))
+			req,
+			userResource,
+			metav1.ConditionTrue,
+			s3v1alpha1.Reconciling,
+			fmt.Sprintf("The user %s will be deleted from the S3 backend, then recreated (through another reconcile), the secret %s will be kept.", userResource.Name, currentUserSecret.Name))
 
 		}
 

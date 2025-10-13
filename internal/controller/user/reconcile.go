@@ -21,6 +21,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	k8sapierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -623,13 +624,22 @@ func (r *S3UserReconciler) handleCreate(
 	}
 
 	// Create a new K8S Secret to hold the user's accessKey and secretKey
+	fmt.Println(s3Client.GetConfig().Region)
 	secret, err := r.newSecretForCR(
 		ctx,
 		userResource,
 		map[string][]byte{
 			userResource.Spec.SecretFieldNameAccessKey: []byte(userResource.Spec.AccessKey),
-			userResource.Spec.SecretFieldNameSecretKey: []byte(secretKey)},
-	)
+			userResource.Spec.SecretFieldNameSecretKey: []byte(secretKey),
+			"s3region":      []byte(s3Client.GetConfig().Region),
+			"s3certificate": []byte(strings.Join(s3Client.GetConfig().CaCertificatesBase64, ",")),
+			"S3url":         []byte(s3Client.GetConfig().S3Url),
+			"s3ConnectionURL": []byte(fmt.Sprintf("https://%s:%s@%s",
+				userResource.Spec.AccessKey,
+				secretKey,
+				strings.TrimPrefix(s3Client.GetConfig().Endpoint, "https://"),
+			)),
+		})
 	if err != nil {
 		// Error while creating the Kubernetes secret - requeue the request.
 		logger.Error(err, "Could not generate Kubernetes secret",

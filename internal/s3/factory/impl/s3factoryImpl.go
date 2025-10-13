@@ -21,6 +21,7 @@ import (
 
 	s3client "github.com/InseeFrLab/s3-operator/internal/s3/client"
 	s3clientImpl "github.com/InseeFrLab/s3-operator/internal/s3/client/impl"
+	ctrl "sigs.k8s.io/controller-runtime"
 )
 
 type S3Factory struct {
@@ -31,8 +32,17 @@ func NewS3Factory() *S3Factory {
 }
 
 func (mockedS3Provider *S3Factory) GenerateS3Client(s3Provider string, s3Config *s3client.S3Config) (s3client.S3Client, error) {
+	s3Logger := ctrl.Log.WithValues("logger", "s3factory")
+	endpoint, isSSL, err := s3clientImpl.ConstructEndpointFromURL(s3Config.S3Url)
+	if err != nil {
+		s3Logger.Error(err, "an error occurred while creating a new minio client")
+		return nil, err
+	}
+	s3Config.Secure = isSSL
+	s3Config.Endpoint = endpoint
+	s3Logger.Info("region ici : " + s3Config.Region)
 	if s3Provider == "mockedS3Provider" {
-		return s3clientImpl.NewMockedS3Client(), nil
+		return s3clientImpl.NewMockedS3Client(s3Config), nil
 	}
 	if s3Provider == "minio" {
 		return s3clientImpl.NewMinioS3Client(s3Config)

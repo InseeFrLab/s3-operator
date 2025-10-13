@@ -154,6 +154,6 @@ func (mockedS3Provider *MockedS3Client) GetConfig() *s3client.S3Config {
 	return &mockedS3Provider.s3Config
 }
 
-func NewMockedS3Client() *MockedS3Client {
-	return &MockedS3Client{s3Config: s3client.S3Config{}}
+func NewMockedS3Client(s3Config *s3client.S3Config) *MockedS3Client {
+	return &MockedS3Client{*s3Config}
 }

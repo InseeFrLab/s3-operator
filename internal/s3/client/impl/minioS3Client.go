@@ -43,8 +43,10 @@ type MinioS3Client struct {
 func NewMinioS3Client(S3Config *s3client.S3Config) (*MinioS3Client, error) {
 	s3Logger := ctrl.Log.WithValues("logger", "s3clientimplminio")
 	s3Logger.Info("creating minio clients (regular and admin)")
+
 	minioClient, err := generateMinioClient(
-		S3Config.S3Url,
+		S3Config.Endpoint,
+		S3Config.Secure,
 		S3Config.AccessKey,
 		S3Config.SecretKey,
 		S3Config.Region,
@@ -55,7 +57,8 @@ func NewMinioS3Client(S3Config *s3client.S3Config) (*MinioS3Client, error) {
 		return nil, err
 	}
 	adminClient, err := generateAdminMinioClient(
-		S3Config.S3Url,
+		S3Config.Endpoint,
+		S3Config.Secure,
 		S3Config.AccessKey,
 		S3Config.SecretKey,
 		S3Config.CaCertificatesBase64,
@@ -68,18 +71,14 @@ func NewMinioS3Client(S3Config *s3client.S3Config) (*MinioS3Client, error) {
 }
 
 func generateMinioClient(
-	url string,
+	endpoint string,
+	isSSL bool,
 	accessKey string,
 	secretKey string,
 	region string,
 	caCertificates []string,
 ) (*minio.Client, error) {
 	s3Logger := ctrl.Log.WithValues("logger", "s3clientimplminio")
-	endpoint, isSSL, err := constructEndpointFromURL(url)
-	if err != nil {
-		s3Logger.Error(err, "an error occurred while creating a new minio client")
-		return nil, err
-	}
 
 	minioOptions := &minio.Options{
 		Creds:  credentials.NewStaticV4(accessKey, secretKey, ""),
@@ -100,17 +99,13 @@ func generateMinioClient(
 }
 
 func generateAdminMinioClient(
-	url string,
+	endpoint string,
+	isSSL bool,
 	accessKey string,
 	secretKey string,
 	caCertificates []string,
 ) (*madmin.AdminClient, error) {
 	s3Logger := ctrl.Log.WithValues("logger", "s3clientimplminio")
-	endpoint, isSSL, err := constructEndpointFromURL(url)
-	if err != nil {
-		s3Logger.Error(err, "an error occurred while creating a new minio admin client")
-		return nil, err
-	}
 
 	minioOptions := &madmin.Options{
 		Creds:  credentials.NewStaticV4(accessKey, secretKey, ""),
@@ -130,7 +125,7 @@ func generateAdminMinioClient(
 	return minioAdminClient, nil
 }
 
-func constructEndpointFromURL(url string) (string, bool, error) {
+func ConstructEndpointFromURL(url string) (string, bool, error) {
 	parsedURL, err := neturl.Parse(url)
 	if err != nil {
 		return "", false, fmt.Errorf("cannot detect if url use ssl or not")
@@ -483,9 +478,9 @@ func (minioS3Client *MinioS3Client) CheckUserCredentialsValid(
 ) (bool, error) {
 	s3Logger := ctrl.Log.WithValues("logger", "s3clientimplminio")
 	s3Logger.Info("Check credentials for user", "user", name, "accessKey", accessKey)
-
 	minioTestClient, err := generateMinioClient(
-		minioS3Client.s3Config.S3Url,
+		minioS3Client.s3Config.Endpoint,
+		minioS3Client.s3Config.Secure,
 		accessKey,
 		secretKey,
 		minioS3Client.s3Config.Region,
@@ -498,7 +493,8 @@ func (minioS3Client *MinioS3Client) CheckUserCredentialsValid(
 	_, err = minioTestClient.ListBuckets(context.Background())
 	if err != nil {
 		errAsResponse := minio.ToErrorResponse(err)
-		if errAsResponse.Code == "SignatureDoesNotMatch" {
+		switch errAsResponse.Code {
+		case "SignatureDoesNotMatch":
 			s3Logger.Info(
 				"the user credentials appear to be invalid",
 				"accessKey",
@@ -507,10 +503,10 @@ func (minioS3Client *MinioS3Client) CheckUserCredentialsValid(
 				errAsResponse,
 			)
 			return false, nil
-		} else if errAsResponse.Code == "InvalidAccessKeyId" {
+		case "InvalidAccessKeyId":
 			s3Logger.Info("this accessKey does not exist on the s3 backend", "accessKey", accessKey, "s3BackendError", errAsResponse)
 			return false, nil
-		} else {
+		default:
 			s3Logger.Error(err, "an error occurred while checking if the S3 user's credentials were valid", "accessKey", accessKey, "code", errAsResponse.Code)
 			return false, err
 		}

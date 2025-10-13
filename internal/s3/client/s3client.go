@@ -32,6 +32,8 @@ type S3Config struct {
 	S3UserDeletionEnabled bool
 	PathDeletionEnabled   bool
 	PolicyDeletionEnabled bool
+	Secure                bool
+	Endpoint              string
 }
 
 type S3Client interface {

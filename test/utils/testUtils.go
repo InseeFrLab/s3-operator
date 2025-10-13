@@ -42,7 +42,7 @@ func NewTestUtils() *TestUtils {
 }
 
 func (t *TestUtils) SetupMockedS3FactoryAndClient() {
-	mockedS3Client := mocks.NewMockedS3Client()
+	mockedS3Client := mocks.NewMockedS3Client(s3client.S3Config{Region: "us-east-1", S3Url: "https://minio.example.com", Secure: true, Endpoint: "minio.example.com"})
 	mockedS3Client.On("BucketExists", "test-bucket").Return(false, nil)
 	mockedS3Client.On("BucketExists", "existing-bucket").Return(true, nil)
 	mockedS3Client.On("CreateBucket", "test-bucket").Return(nil)
@@ -92,12 +92,12 @@ func (t *TestUtils) SetupMockedS3FactoryAndClient() {
 	mockedS3Client.On("PathExists", "existing-invalid-bucket", "non-existing").Return(false, nil)
 	mockedS3Client.On("BucketExists", "existing-invalid-bucket").Return(true, nil)
 	mockedS3Client.On("BucketExists", "non-existing-bucket").Return(false, nil)
-
+	mockedS3Client.On("GetConfig").Return(&s3client.S3Config{S3Url: "https://minio.example.com"})
 	mockedS3Client.On("CreatePath", "existing-invalid-bucket", "non-existing").Return(nil)
 
 	mockedS3Client.On("DeleteUser", "existing-valid-user").Return(nil)
 
-	mockedInvalidS3Client := mocks.NewMockedS3Client()
+	mockedInvalidS3Client := mocks.NewMockedS3Client(s3client.S3Config{})
 	mockedInvalidS3Client.On("BucketExists", "test-bucket").Return(false, nil)
 	mockedInvalidS3Client.On("CreateBucket", "test-bucket").Return(nil)
 	mockedInvalidS3Client.On("SetQuota", "test-bucket", int64(10)).Return(nil)

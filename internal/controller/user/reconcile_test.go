@@ -18,6 +18,7 @@ package user_controller_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	s3v1alpha1 "github.com/InseeFrLab/s3-operator/api/v1alpha1"
@@ -144,7 +145,6 @@ func TestExistingSecret(t *testing.T) {
 		}, existingSecret)
 		assert.NoError(t, err)
 
-
 		// Call Reconcile function
 		req := ctrl.Request{NamespacedName: types.NamespacedName{Name: s3UserResource.Name, Namespace: s3UserResource.Namespace}}
 		_, err = reconciler.Reconcile(context.TODO(), req)
@@ -158,7 +158,6 @@ func TestExistingSecret(t *testing.T) {
 		assert.Equal(t, s3v1alpha1.Reconciled, s3UserResourceUpdated.Status.Conditions[0].Reason)
 		assert.Equal(t, metav1.ConditionTrue, s3UserResourceUpdated.Status.Conditions[0].Status)
 		assert.Contains(t, s3UserResourceUpdated.Status.Conditions[0].Message, "User reconciled")
-
 
 		newSecret := &corev1.Secret{}
 		err = testUtils.Client.Get(context.TODO(), client.ObjectKey{
@@ -305,7 +304,6 @@ func TestHandleCreate(t *testing.T) {
 	})
 
 	t.Run("secret is created", func(t *testing.T) {
-
 		secretCreated := &corev1.Secret{}
 		err := testUtils.Client.Get(context.TODO(), client.ObjectKey{
 			Namespace: "default",
@@ -314,7 +312,7 @@ func TestHandleCreate(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Equal(t, "example-user", string(secretCreated.Data["accessKey"]))
 		assert.GreaterOrEqual(t, len(string(secretCreated.Data["secretKey"])), 20)
-
+		fmt.Println(string(secretCreated.Data["s3ConnectionURL"]))
 	})
 
 }
@@ -364,7 +362,6 @@ func TestHandleUpdate(t *testing.T) {
 				"secretKey": []byte("validSecret"),
 			},
 		}
-
 
 		// Add mock for s3Factory and client
 		testUtils := TestUtils.NewTestUtils()
@@ -425,7 +422,6 @@ func TestHandleUpdate(t *testing.T) {
 				"secretKey": []byte("validSecret"),
 			},
 		}
-
 
 		// Add mock for s3Factory and client
 		testUtils := TestUtils.NewTestUtils()

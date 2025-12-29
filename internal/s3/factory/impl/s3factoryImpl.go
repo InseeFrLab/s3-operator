@@ -24,8 +24,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 )
 
-type S3Factory struct {
-}
+type S3Factory struct{}
 
 func NewS3Factory() *S3Factory {
 	return &S3Factory{}
@@ -40,7 +39,7 @@ func (mockedS3Provider *S3Factory) GenerateS3Client(s3Provider string, s3Config 
 	}
 	s3Config.Secure = isSSL
 	s3Config.Endpoint = endpoint
-	s3Logger.Info("region ici : " + s3Config.Region)
+	s3Config.PathStyle = false
 	if s3Provider == "mockedS3Provider" {
 		return s3clientImpl.NewMockedS3Client(s3Config), nil
 	}

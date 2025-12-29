@@ -25,7 +25,6 @@ import (
 
 // S3UserSpec defines the desired state of S3User
 type S3UserSpec struct {
-
 	// Name of the S3User
 	// +kubebuilder:validation:Required
 	AccessKey string `json:"accessKey"`
@@ -68,8 +67,8 @@ type S3UserStatus struct {
 	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type"`
 }
 
-//+kubebuilder:object:root=true
-//+kubebuilder:subresource:status
+// +kubebuilder:object:root=true
+// +kubebuilder:subresource:status
 
 // S3User is the Schema for the S3Users API
 type S3User struct {
@@ -80,7 +79,7 @@ type S3User struct {
 	Status S3UserStatus `json:"status,omitempty"`
 }
 
-//+kubebuilder:object:root=true
+// +kubebuilder:object:root=true
 
 // S3UserList contains a list of S3User
 type S3UserList struct {

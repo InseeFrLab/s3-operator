@@ -29,8 +29,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
-type ControllerHelper struct {
-}
+type ControllerHelper struct{}
 
 func NewControllerHelper() *ControllerHelper {
 	return &ControllerHelper{}
@@ -54,7 +53,7 @@ func (c *ControllerHelper) SetReconciledCondition(
 	var changed bool
 
 	if err != nil {
-		logger.Error(err, message, "NamespacedName", req.NamespacedName.String())
+		logger.Error(err, message, "NamespacedName", req.Namespace)
 		changed = meta.SetStatusCondition(
 			conditions,
 			metav1.Condition{
@@ -66,7 +65,7 @@ func (c *ControllerHelper) SetReconciledCondition(
 			},
 		)
 	} else {
-		logger.Info(message, "NamespacedName", req.NamespacedName.String())
+		logger.Info(message, "NamespacedName", req.Namespace)
 		changed = meta.SetStatusCondition(
 			conditions,
 			metav1.Condition{
@@ -81,7 +80,7 @@ func (c *ControllerHelper) SetReconciledCondition(
 
 	if changed {
 		if errStatusUpdate := statusWriter.Update(ctx, resource); errStatusUpdate != nil {
-			logger.Error(errStatusUpdate, "Failed to update resource status", "ObjectKind", resource.GetObjectKind(), "NamespacedName", req.NamespacedName.String())
+			logger.Error(errStatusUpdate, "Failed to update resource status", "ObjectKind", resource.GetObjectKind(), "NamespacedName", req.Namespace)
 			return reconcile.Result{}, errStatusUpdate
 		}
 	}

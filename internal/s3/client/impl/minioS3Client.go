@@ -28,7 +28,7 @@ import (
 	"strings"
 
 	s3client "github.com/InseeFrLab/s3-operator/internal/s3/client"
-	"github.com/minio/madmin-go/v3"
+	"github.com/minio/madmin-go/v4"
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -36,8 +36,8 @@ import (
 
 type MinioS3Client struct {
 	s3Config    s3client.S3Config
-	client      minio.Client
-	adminClient madmin.AdminClient
+	client      *minio.Client
+	adminClient *madmin.AdminClient
 }
 
 func NewMinioS3Client(S3Config *s3client.S3Config) (*MinioS3Client, error) {
@@ -67,7 +67,7 @@ func NewMinioS3Client(S3Config *s3client.S3Config) (*MinioS3Client, error) {
 		s3Logger.Error(err, "an error occurred while creating a new minio admin client")
 		return nil, err
 	}
-	return &MinioS3Client{*S3Config, *minioClient, *adminClient}, nil
+	return &MinioS3Client{*S3Config, minioClient, adminClient}, nil
 }
 
 func generateMinioClient(
@@ -131,9 +131,9 @@ func ConstructEndpointFromURL(url string) (string, bool, error) {
 		return "", false, fmt.Errorf("cannot detect if url use ssl or not")
 	}
 
-	var endpoint = parsedURL.Hostname()
-	if !((parsedURL.Scheme == "https" && parsedURL.Port() == "443") ||
-		(parsedURL.Scheme == "http" && parsedURL.Port() == "80")) {
+	endpoint := parsedURL.Hostname()
+	if (parsedURL.Scheme != "https" || parsedURL.Port() != "443") &&
+		(parsedURL.Scheme != "http" || parsedURL.Port() != "80") {
 		endpoint = fmt.Sprintf("%s:%s", endpoint, parsedURL.Port())
 	}
 
@@ -168,7 +168,6 @@ func addTlsClientConfigToMinioAdminOptions(caCertificates []string, minioOptions
 		// caCertificateEncoded := base64.StdEncoding.EncodeToString(caCertificateAsByte)
 		// rootCAs.AppendCertsFromPEM([]byte(caCertificateEncoded))
 		rootCAs.AppendCertsFromPEM([]byte(caCertificate))
-
 	}
 
 	minioOptions.Transport = &http.Transport{
@@ -254,7 +253,6 @@ func (minioS3Client *MinioS3Client) PathExists(bucketname string, path string) (
 			bucketname,
 			"/"+path+"/"+".keep",
 			minio.StatObjectOptions{})
-
 	if err != nil {
 		if minio.ToErrorResponse(err).StatusCode == 404 {
 			// fmt.Println("The path does not exist")
@@ -302,26 +300,24 @@ func (minioS3Client *MinioS3Client) GetQuota(name string) (int64, error) {
 	if err != nil {
 		s3Logger.Error(err, "error while getting quota on bucket", "bucket", name)
 	}
-	return int64(bucketQuota.Quota), err
+	return int64(bucketQuota.Size), err
 }
 
 func (minioS3Client *MinioS3Client) SetQuota(name string, quota int64) error {
 	s3Logger := ctrl.Log.WithValues("logger", "s3clientimplminio")
 	s3Logger.Info("setting quota on bucket", "bucket", name, "quotaToSet", quota)
-	minioS3Client.adminClient.SetBucketQuota(
+	err := minioS3Client.adminClient.SetBucketQuota(
 		context.Background(),
 		name,
-		&madmin.BucketQuota{Quota: uint64(quota), Type: madmin.HardQuota},
+		&madmin.BucketQuota{Size: uint64(quota), Type: madmin.HardQuota},
 	)
-	return nil
+	return err
 }
 
-////////////////////
+// //////////////////
 // Policy methods //
-////////////////////
-
+// //////////////////
 // Note regarding the implementation of policy existence check
-
 // No method exposed by the madmin client is truly satisfying to test the existence of a policy
 //   - InfoCannedPolicyV2 returns an error if the policy does not exist (as opposed to BucketExists,
 //     for instance, see https://github.com/minio/minio-go/blob/v7.0.52/api-stat.go#L43-L45)
@@ -336,8 +332,7 @@ func (minioS3Client *MinioS3Client) GetPolicyInfo(name string) (*madmin.PolicyIn
 	s3Logger := ctrl.Log.WithValues("logger", "s3clientimplminio")
 	s3Logger.Info("retrieving policy info", "policy", name)
 
-	policy, err := minioS3Client.adminClient.InfoCannedPolicyV2(context.Background(), name)
-
+	policy, err := minioS3Client.adminClient.InfoCannedPolicy(context.Background(), name)
 	if err != nil {
 		// Not ideal (breaks if error nomenclature changes), but still
 		// better than testing the error message as we did before
@@ -384,10 +379,7 @@ func (minioS3Client *MinioS3Client) DeletePolicy(name string) error {
 	return minioS3Client.adminClient.RemoveCannedPolicy(context.Background(), name)
 }
 
-////////////////////
-// USER   methods //
-////////////////////
-
+// USER methods
 func (minioS3Client *MinioS3Client) CreateUser(accessKey string, secretKey string) error {
 	s3Logger := ctrl.Log.WithValues("logger", "s3clientimplminio")
 	s3Logger.Info("Creating user", "accessKey", accessKey)
@@ -422,7 +414,6 @@ func (minioS3Client *MinioS3Client) AddServiceAccountForUser(
 	}
 
 	return nil
-
 }
 
 func (minioS3Client *MinioS3Client) UserExist(accessKey string) (bool, error) {
@@ -527,7 +518,6 @@ func (minioS3Client *MinioS3Client) RemovePoliciesFromUser(
 	}
 
 	_, err := minioS3Client.adminClient.DetachPolicy(context.Background(), opts)
-
 	if err != nil {
 		errAsResp := madmin.ToErrorResponse(err)
 		if errAsResp.Code == "XMinioAdminPolicyChangeAlreadyApplied" {

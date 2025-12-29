@@ -52,8 +52,8 @@ type PathStatus struct {
 	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type"`
 }
 
-//+kubebuilder:object:root=true
-//+kubebuilder:subresource:status
+// +kubebuilder:object:root=true
+// +kubebuilder:subresource:status
 
 // Path is the Schema for the paths API
 type Path struct {
@@ -64,7 +64,7 @@ type Path struct {
 	Status PathStatus `json:"status,omitempty"`
 }
 
-//+kubebuilder:object:root=true
+// +kubebuilder:object:root=true
 
 // PathList contains a list of Path
 type PathList struct {

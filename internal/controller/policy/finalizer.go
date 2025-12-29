@@ -67,7 +67,7 @@ func (r *PolicyReconciler) handleDeletion(
 				"policyName",
 				policyResource.Spec.Name,
 				"NamespacedName",
-				req.NamespacedName.String(),
+				req.Namespace,
 			)
 			return r.SetReconciledCondition(
 				ctx,
@@ -85,7 +85,7 @@ func (r *PolicyReconciler) handleDeletion(
 				"policyName",
 				policyResource.Spec.Name,
 				"NamespacedName",
-				req.NamespacedName.String(),
+				req.Namespace,
 			)
 			return ctrl.Result{Requeue: true}, nil
 		}
@@ -97,7 +97,7 @@ func (r *PolicyReconciler) handleDeletion(
 				"policyName",
 				policyResource.Spec.Name,
 				"NamespacedName",
-				req.NamespacedName.String(),
+				req.Namespace,
 			)
 			return ctrl.Result{}, err
 		}

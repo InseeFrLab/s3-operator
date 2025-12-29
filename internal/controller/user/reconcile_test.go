@@ -18,7 +18,6 @@ package user_controller_test
 
 import (
 	"context"
-	"fmt"
 	"testing"
 
 	s3v1alpha1 "github.com/InseeFrLab/s3-operator/api/v1alpha1"
@@ -137,7 +136,6 @@ func TestExistingSecret(t *testing.T) {
 	reconciler.ReadExistingSecret = false
 	reconciler.OverrideExistingSecret = true
 	t.Run("no error override existing secret (case 3.2a)", func(t *testing.T) {
-
 		existingSecret := &corev1.Secret{}
 		err := testUtils.Client.Get(context.TODO(), client.ObjectKey{
 			Namespace: "default",
@@ -167,7 +165,6 @@ func TestExistingSecret(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Equal(t, string(newSecret.Data["accessKey"]), string(existingSecret.Data["accessKey"]))
 		assert.NotEqual(t, string(newSecret.Data["secretKey"]), string(existingSecret.Data["secretKey"]))
-
 	})
 	reconciler.OverrideExistingSecret = false
 	reconciler.ReadExistingSecret = true
@@ -312,9 +309,8 @@ func TestHandleCreate(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Equal(t, "example-user", string(secretCreated.Data["accessKey"]))
 		assert.GreaterOrEqual(t, len(string(secretCreated.Data["secretKey"])), 20)
-		fmt.Println(string(secretCreated.Data["s3ConnectionURL"]))
+		assert.NotEmpty(t, string(secretCreated.Data["s3ConnectionURL"]))
 	})
-
 }
 
 func TestHandleUpdate(t *testing.T) {
@@ -518,10 +514,10 @@ func TestHandleUpdate(t *testing.T) {
 		t.Run("secret have changed", func(t *testing.T) {
 			// Call Reconcile function
 			req := ctrl.Request{NamespacedName: types.NamespacedName{Name: s3UserResource.Name, Namespace: s3UserResource.Namespace}}
-			reconciler.Reconcile(context.TODO(), req)
-
+			_, err := reconciler.Reconcile(context.TODO(), req)
+			assert.NoError(t, err)
 			secretCreated := &corev1.Secret{}
-			err := testUtils.Client.Get(context.TODO(), client.ObjectKey{
+			err = testUtils.Client.Get(context.TODO(), client.ObjectKey{
 				Namespace: "default",
 				Name:      "existing-valid-user-secret",
 			}, secretCreated)
@@ -581,5 +577,4 @@ func TestHandleUpdate(t *testing.T) {
 			assert.NoError(t, err)
 		})
 	})
-
 }

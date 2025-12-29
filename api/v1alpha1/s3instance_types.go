@@ -25,7 +25,6 @@ import (
 
 // S3InstanceSpec defines the desired state of S3Instance
 type S3InstanceSpec struct {
-
 	// type of the S3Instance
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="S3Provider is immutable"
@@ -77,8 +76,8 @@ type S3InstanceStatus struct {
 	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type"`
 }
 
-//+kubebuilder:object:root=true
-//+kubebuilder:subresource:status
+// +kubebuilder:object:root=true
+// +kubebuilder:subresource:status
 
 // S3Instance is the Schema for the S3Instances API
 type S3Instance struct {
@@ -89,7 +88,7 @@ type S3Instance struct {
 	Status S3InstanceStatus `json:"status,omitempty"`
 }
 
-//+kubebuilder:object:root=true
+// +kubebuilder:object:root=true
 
 // S3InstanceList contains a list of S3Instance
 type S3InstanceList struct {

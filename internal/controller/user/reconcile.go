@@ -80,7 +80,7 @@ func (r *S3UserReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 				"userResourceName",
 				userResource.Name,
 				"NamespacedName",
-				req.NamespacedName.String(),
+				req.Namespace,
 			)
 			return ctrl.Result{}, err
 		}
@@ -97,7 +97,7 @@ func (r *S3UserReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 				"userResourceName",
 				userResource.Name,
 				"NamespacedName",
-				req.NamespacedName.String(),
+				req.Namespace,
 			)
 			return ctrl.Result{}, err
 		}
@@ -109,7 +109,7 @@ func (r *S3UserReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 			"userResourceName",
 			userResource.Name,
 			"NamespacedName",
-			req.NamespacedName.String())
+			req.Namespace)
 
 		if ok := controllerutil.AddFinalizer(userResource, userFinalizer); !ok {
 			logger.Error(
@@ -118,7 +118,7 @@ func (r *S3UserReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 				"userResourceName",
 				userResource.Name,
 				"NamespacedName",
-				req.NamespacedName.String(),
+				req.Namespace,
 			)
 			return ctrl.Result{Requeue: true}, nil
 		}
@@ -130,7 +130,7 @@ func (r *S3UserReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 				"userResourceName",
 				userResource.Name,
 				"NamespacedName",
-				req.NamespacedName.String(),
+				req.Namespace,
 			)
 			return ctrl.Result{}, err
 		}
@@ -147,7 +147,7 @@ func (r *S3UserReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 				"userResourceName",
 				userResource.Name,
 				"NamespacedName",
-				req.NamespacedName.String(),
+				req.Namespace,
 			)
 			return ctrl.Result{}, err
 		}
@@ -160,12 +160,11 @@ func (r *S3UserReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 			"userResource",
 			userResource.Name,
 			"NamespacedName",
-			req.NamespacedName.String())
+			req.Namespace)
 		return r.handleDeletion(ctx, req, userResource)
 	}
 
 	return r.handleReconciliation(ctx, req, userResource)
-
 }
 
 func (r *S3UserReconciler) handleReconciliation(
@@ -203,7 +202,7 @@ func (r *S3UserReconciler) handleReconciliation(
 			"userResource",
 			userResource.Name,
 			"NamespacedName",
-			req.NamespacedName.String(),
+			req.Namespace,
 		)
 		return r.SetReconciledCondition(
 			ctx,
@@ -257,7 +256,7 @@ func (r *S3UserReconciler) handleUpdate(
 			"userResourceName",
 			userResource.Name,
 			"NamespacedName",
-			req.NamespacedName.String(),
+			req.Namespace,
 		)
 		return r.SetReconciledCondition(
 			ctx,
@@ -275,7 +274,7 @@ func (r *S3UserReconciler) handleUpdate(
 			"userResourceName",
 			userResource.Name,
 			"NamespacedName",
-			req.NamespacedName.String(),
+			req.Namespace,
 		)
 		return r.SetReconciledCondition(
 			ctx,
@@ -295,7 +294,7 @@ func (r *S3UserReconciler) handleUpdate(
 			"userResourceName",
 			userResource.Name,
 			"NamespacedName",
-			req.NamespacedName.String(),
+			req.Namespace,
 		)
 
 		err = s3Client.DeleteUser(userResource.Spec.AccessKey)
@@ -305,7 +304,7 @@ func (r *S3UserReconciler) handleUpdate(
 				"userResourceName",
 				userResource.Name,
 				"NamespacedName",
-				req.NamespacedName.String())
+				req.Namespace)
 			return r.SetReconciledCondition(
 				ctx,
 				req,
@@ -348,7 +347,7 @@ func (r *S3UserReconciler) handleUpdate(
 				"userResourceName",
 				userResource.Name,
 				"NamespacedName",
-				req.NamespacedName.String(),
+				req.Namespace,
 			)
 
 			err = s3Client.DeleteUser(userResource.Spec.AccessKey)
@@ -358,7 +357,7 @@ func (r *S3UserReconciler) handleUpdate(
 					"userResourceName",
 					userResource.Name,
 					"NamespacedName",
-					req.NamespacedName.String())
+					req.Namespace)
 				return r.SetReconciledCondition(
 					ctx,
 					req,
@@ -378,13 +377,13 @@ func (r *S3UserReconciler) handleUpdate(
 	logger.Info("Checking user policies", "userResource",
 		userResource.Name,
 		"NamespacedName",
-		req.NamespacedName.String())
+		req.Namespace)
 	userPolicies, err := s3Client.GetUserPolicies(userResource.Spec.AccessKey)
 	if err != nil {
 		logger.Error(err, "Could not check the user's policies", "userResource",
 			userResource.Name,
 			"NamespacedName",
-			req.NamespacedName.String())
+			req.Namespace)
 		return r.SetReconciledCondition(
 			ctx,
 			req,
@@ -405,7 +404,7 @@ func (r *S3UserReconciler) handleUpdate(
 				"userResource",
 				userResource.Name,
 				"NamespacedName",
-				req.NamespacedName.String(),
+				req.Namespace,
 			)
 			policyToDelete = append(policyToDelete, policy)
 		}
@@ -419,7 +418,7 @@ func (r *S3UserReconciler) handleUpdate(
 				"userResource",
 				userResource.Name,
 				"NamespacedName",
-				req.NamespacedName.String(),
+				req.Namespace,
 			)
 			policyToAdd = append(policyToAdd, policy)
 		}
@@ -434,7 +433,7 @@ func (r *S3UserReconciler) handleUpdate(
 				"userResource",
 				userResource.Name,
 				"NamespacedName",
-				req.NamespacedName.String(),
+				req.Namespace,
 			)
 			return r.SetReconciledCondition(
 				ctx,
@@ -456,7 +455,7 @@ func (r *S3UserReconciler) handleUpdate(
 				"userResource",
 				userResource.Name,
 				"NamespacedName",
-				req.NamespacedName.String(),
+				req.Namespace,
 			)
 
 			return r.SetReconciledCondition(
@@ -476,7 +475,6 @@ func (r *S3UserReconciler) handleUpdate(
 		string(currentUserSecret.Data[userResource.Spec.SecretFieldNameAccessKey]),
 		string(currentUserSecret.Data[userResource.Spec.SecretFieldNameSecretKey]),
 	)
-
 	if err != nil {
 		logger.Error(
 			err,
@@ -484,7 +482,7 @@ func (r *S3UserReconciler) handleUpdate(
 			"userResource",
 			userResource.Name,
 			"NamespacedName",
-			req.NamespacedName.String(),
+			req.Namespace,
 		)
 		return r.SetReconciledCondition(
 			ctx,
@@ -503,7 +501,7 @@ func (r *S3UserReconciler) handleUpdate(
 				"userResource",
 				userResource.Name,
 				"NamespacedName",
-				req.NamespacedName.String(),
+				req.Namespace,
 			)
 			err = r.deleteSecret(ctx, &currentUserSecret)
 			if err != nil {
@@ -512,7 +510,7 @@ func (r *S3UserReconciler) handleUpdate(
 					"userResourceName",
 					userResource.Name,
 					"NamespacedName",
-					req.NamespacedName.String())
+					req.Namespace)
 				return r.SetReconciledCondition(
 					ctx,
 					req,
@@ -529,7 +527,7 @@ func (r *S3UserReconciler) handleUpdate(
 				"userResource",
 				userResource.Name,
 				"NamespacedName",
-				req.NamespacedName.String(),
+				req.Namespace,
 			)
 		}
 
@@ -540,7 +538,7 @@ func (r *S3UserReconciler) handleUpdate(
 				"userResourceName",
 				userResource.Name,
 				"NamespacedName",
-				req.NamespacedName.String())
+				req.Namespace)
 			return r.SetReconciledCondition(
 				ctx,
 				req,
@@ -561,7 +559,7 @@ func (r *S3UserReconciler) handleUpdate(
 		"userResource",
 		userResource.Name,
 		"NamespacedName",
-		req.NamespacedName.String(),
+		req.Namespace,
 	)
 
 	return r.SetReconciledCondition(
@@ -610,7 +608,7 @@ func (r *S3UserReconciler) handleCreate(
 			"userResource",
 			userResource.Name,
 			"NamespacedName",
-			req.NamespacedName.String(),
+			req.Namespace,
 		)
 
 		return r.SetReconciledCondition(
@@ -624,21 +622,24 @@ func (r *S3UserReconciler) handleCreate(
 	}
 
 	// Create a new K8S Secret to hold the user's accessKey and secretKey
-	fmt.Println(s3Client.GetConfig().Region)
 	secret, err := r.newSecretForCR(
 		ctx,
 		userResource,
 		map[string][]byte{
 			userResource.Spec.SecretFieldNameAccessKey: []byte(userResource.Spec.AccessKey),
 			userResource.Spec.SecretFieldNameSecretKey: []byte(secretKey),
-			"s3region":      []byte(s3Client.GetConfig().Region),
-			"s3certificate": []byte(strings.Join(s3Client.GetConfig().CaCertificatesBase64, ",")),
-			"S3url":         []byte(s3Client.GetConfig().S3Url),
+			"s3PathStyleUrl": []byte(
+				fmt.Sprintf("%t", s3Client.GetConfig().PathStyle),
+			),
+			"s3region":        []byte(s3Client.GetConfig().Region),
+			"s3CACertificate": []byte(strings.Join(s3Client.GetConfig().CaCertificatesBase64, ",")),
+			"s3url":           []byte(s3Client.GetConfig().S3Url),
 			"s3ConnectionURL": []byte(fmt.Sprintf("https://%s:%s@%s",
 				userResource.Spec.AccessKey,
 				secretKey,
 				strings.TrimPrefix(s3Client.GetConfig().Endpoint, "https://"),
-			)),
+			),
+			),
 		})
 	if err != nil {
 		// Error while creating the Kubernetes secret - requeue the request.
@@ -646,7 +647,7 @@ func (r *S3UserReconciler) handleCreate(
 			"userResource",
 			userResource.Name,
 			"NamespacedName",
-			req.NamespacedName.String(),
+			req.Namespace,
 		)
 		return r.SetReconciledCondition(
 			ctx,
@@ -679,7 +680,6 @@ func (r *S3UserReconciler) handleCreate(
 
 		// Creating the user
 		err = s3Client.CreateUser(userResource.Spec.AccessKey, secretKey)
-
 		if err != nil {
 			logger.Error(
 				err,
@@ -687,7 +687,7 @@ func (r *S3UserReconciler) handleCreate(
 				"userResource",
 				userResource.Name,
 				"NamespacedName",
-				req.NamespacedName.String(),
+				req.Namespace,
 			)
 			return r.SetReconciledCondition(
 				ctx,
@@ -707,7 +707,7 @@ func (r *S3UserReconciler) handleCreate(
 			"userResource",
 			userResource.Name,
 			"NamespacedName",
-			req.NamespacedName.String(),
+			req.Namespace,
 		)
 		err = r.Create(ctx, secret)
 		if err != nil {
@@ -717,7 +717,7 @@ func (r *S3UserReconciler) handleCreate(
 				"userResource",
 				userResource.Name,
 				"NamespacedName",
-				req.NamespacedName.String(),
+				req.Namespace,
 			)
 			return r.SetReconciledCondition(
 				ctx,
@@ -758,7 +758,7 @@ func (r *S3UserReconciler) handleCreate(
 			"userResource",
 			userResource.Name,
 			"NamespacedName",
-			req.NamespacedName.String(),
+			req.Namespace,
 		)
 		return r.SetReconciledCondition(
 			ctx,
@@ -774,7 +774,7 @@ func (r *S3UserReconciler) handleCreate(
 		for _, ref := range existingK8sSecret.OwnerReferences {
 			if ref.Kind == "S3User" {
 				if ref.UID != userResource.UID {
-					err = fmt.Errorf("The secret matching the new S3User's spec is owned by a different S3User.")
+					err = fmt.Errorf("secret matching the new S3User's spec is owned by a different S3User")
 					logger.Error(err,
 						"S3User could not be created because of existing secret",
 						"conflictingUser",
@@ -784,7 +784,7 @@ func (r *S3UserReconciler) handleCreate(
 						"userResource",
 						userResource.Name,
 						"NamespacedName",
-						req.NamespacedName.String())
+						req.Namespace)
 					return r.SetReconciledCondition(
 						ctx,
 						req,
@@ -805,8 +805,8 @@ func (r *S3UserReconciler) handleCreate(
 					"userResource",
 					userResource.Name,
 					"NamespacedName",
-					req.NamespacedName.String())
-				var cpData = *&existingK8sSecret.Data
+					req.Namespace)
+				cpData := existingK8sSecret.Data
 				for k, v := range cpData {
 					if k == userResource.Spec.SecretFieldNameSecretKey {
 						secretKey = string(v)
@@ -819,7 +819,7 @@ func (r *S3UserReconciler) handleCreate(
 					"userResource",
 					userResource.Name,
 					"NamespacedName",
-					req.NamespacedName.String())
+					req.Namespace)
 			}
 			// Creating the user
 			err = s3Client.CreateUser(userResource.Spec.AccessKey, secretKey)
@@ -830,7 +830,7 @@ func (r *S3UserReconciler) handleCreate(
 					"userResource",
 					userResource.Name,
 					"NamespacedName",
-					req.NamespacedName.String(),
+					req.Namespace,
 				)
 				return r.SetReconciledCondition(
 					ctx,
@@ -849,7 +849,7 @@ func (r *S3UserReconciler) handleCreate(
 					"userResource",
 					userResource.Name,
 					"NamespacedName",
-					req.NamespacedName.String(),
+					req.Namespace,
 				)
 				err = r.Update(ctx, secret)
 				if err != nil {
@@ -858,7 +858,7 @@ func (r *S3UserReconciler) handleCreate(
 						"userResource",
 						userResource.Name,
 						"NamespacedName",
-						req.NamespacedName.String())
+						req.Namespace)
 					return r.SetReconciledCondition(
 						ctx,
 						req,
@@ -896,7 +896,7 @@ func (r *S3UserReconciler) handleCreate(
 		// Case 3.3 : they are not valid, and the operator is configured keep the existing secret
 		// The user will not be created, with no requeue and with two possible ways out : either toggle
 		// OverrideExistingSecret on, or delete the S3User whose credentials are not working anyway.
-		err = fmt.Errorf("A secret with the same name already exists ; as the operator is configured to NOT override nor read any pre-existing secrets, this user will not be created on S3 backend until spec change (to target new secret), or until the operator configuration is changed to override existing secrets")
+		err = fmt.Errorf("secret with the same name already exists ; as the operator is configured to not override nor read any pre-existing secrets, this user will not be created on S3 backend until spec change (to target new secret), or until the operator configuration is changed to override existing secrets")
 		logger.Error(err,
 			"S3User could not be created because of existing secret",
 			"secretName",
@@ -904,7 +904,7 @@ func (r *S3UserReconciler) handleCreate(
 			"userResource",
 			userResource.Name,
 			"NamespacedName",
-			req.NamespacedName.String())
+			req.Namespace)
 		return r.SetReconciledCondition(
 			ctx,
 			req,

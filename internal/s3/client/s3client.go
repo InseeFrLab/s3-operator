@@ -17,7 +17,7 @@ limitations under the License.
 package s3client
 
 import (
-	"github.com/minio/madmin-go/v3"
+	"github.com/minio/madmin-go/v4"
 )
 
 type S3Config struct {
@@ -34,6 +34,7 @@ type S3Config struct {
 	PolicyDeletionEnabled bool
 	Secure                bool
 	Endpoint              string
+	PathStyle             bool
 }
 
 type S3Client interface {

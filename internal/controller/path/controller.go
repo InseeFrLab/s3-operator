@@ -31,9 +31,9 @@ import (
 	s3v1alpha1 "github.com/InseeFrLab/s3-operator/api/v1alpha1"
 )
 
-//+kubebuilder:rbac:groups=s3.onyxia.sh,resources=paths,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=s3.onyxia.sh,resources=paths/status,verbs=get;update;patch
-//+kubebuilder:rbac:groups=s3.onyxia.sh,resources=paths/finalizers,verbs=update
+// +kubebuilder:rbac:groups=s3.onyxia.sh,resources=paths,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=s3.onyxia.sh,resources=paths/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=s3.onyxia.sh,resources=paths/finalizers,verbs=update
 
 // PathReconciler reconciles a Path object
 type PathReconciler struct {
@@ -49,6 +49,7 @@ type PathReconciler struct {
 func (r *PathReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&s3v1alpha1.Path{}).
+		Named("path").
 		// REF : https://sdk.operatorframework.io/docs/building-operators/golang/references/event-filtering/
 		WithEventFilter(predicate.Funcs{
 			UpdateFunc: func(e event.UpdateEvent) bool {

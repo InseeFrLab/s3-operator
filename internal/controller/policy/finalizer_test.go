@@ -34,7 +34,6 @@ import (
 )
 
 func TestHandleDelete(t *testing.T) {
-
 	// Set up a logger before running tests
 	log.SetLogger(zap.New(zap.UseDevMode(true)))
 
@@ -77,14 +76,14 @@ func TestHandleDelete(t *testing.T) {
 	t.Run("ressource have been deleted", func(t *testing.T) {
 		// Call Reconcile function
 		req := ctrl.Request{NamespacedName: types.NamespacedName{Name: policyResource.Name, Namespace: policyResource.Namespace}}
-		reconciler.Reconcile(context.TODO(), req)
+		_, err := reconciler.Reconcile(context.TODO(), req)
+		assert.NoError(t, err)
 		policy := &s3v1alpha1.Policy{}
-		err := testUtils.Client.Get(context.TODO(), client.ObjectKey{
+		err = testUtils.Client.Get(context.TODO(), client.ObjectKey{
 			Namespace: "default",
 			Name:      "example-policy",
 		}, policy)
 		assert.NotNil(t, err)
 		assert.ErrorContains(t, err, "policies.s3.onyxia.sh \"example-policy\" not found")
 	})
-
 }

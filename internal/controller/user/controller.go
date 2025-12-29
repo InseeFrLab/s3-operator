@@ -57,17 +57,16 @@ func (r *S3UserReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	// filterLogger := ctrl.Log.WithName("filterEvt")
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&s3v1alpha1.S3User{}).
+		Named("s3User").
 		// The "secret owning" implies the reconcile loop will be called whenever a Secret owned
 		// by a S3User is created/updated/deleted. In other words, even when creating a single S3User,
 		// there is going to be several iterations.
 		Owns(&corev1.Secret{}).
 		// See : https://sdk.operatorframework.io/docs/building-operators/golang/references/event-filtering/
 		WithEventFilter(predicate.Funcs{
-
 			// Ignore updates to CR status in which case metadata.Generation does not change,
 			// unless it is a change to the underlying Secret
 			UpdateFunc: func(e event.UpdateEvent) bool {
-
 				// To check if the update event is tied to a change on secret,
 				// we try to cast e.ObjectNew to a secret (only if it's not a S3User, which
 				// should prevent any TypeAssertionError based panic).

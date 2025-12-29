@@ -30,9 +30,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 )
 
-//+kubebuilder:rbac:groups=s3.onyxia.sh,resources=s3instances,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=s3.onyxia.sh,resources=s3instances/status,verbs=get;update;patch
-//+kubebuilder:rbac:groups=s3.onyxia.sh,resources=s3instances/finalizers,verbs=update
+// +kubebuilder:rbac:groups=s3.onyxia.sh,resources=s3instances,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=s3.onyxia.sh,resources=s3instances/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=s3.onyxia.sh,resources=s3instances/finalizers,verbs=update
 
 // S3InstanceReconciler reconciles a S3Instance object
 type S3InstanceReconciler struct {
@@ -49,6 +49,7 @@ func (r *S3InstanceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	// filterLogger := ctrl.Log.WithName("filterEvt")
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&s3v1alpha1.S3Instance{}).
+		Named("s3instance").
 		// See : https://sdk.operatorframework.io/docs/building-operators/golang/references/event-filtering/
 		WithEventFilter(predicate.Funcs{
 			// Ignore updates to CR status in which case metadata.Generation does not change,

@@ -43,7 +43,7 @@ func (r *PathReconciler) handleDeletion(
 				"path",
 				pathResource.Name,
 				"NamespacedName",
-				req.NamespacedName.String(),
+				req.Namespace,
 			)
 			return r.SetReconciledCondition(
 				ctx,
@@ -64,7 +64,7 @@ func (r *PathReconciler) handleDeletion(
 				"pathResource",
 				pathResource.Name,
 				"NamespacedName",
-				req.NamespacedName.String(),
+				req.Namespace,
 			)
 			return ctrl.Result{Requeue: true}, nil
 		}
@@ -81,7 +81,7 @@ func (r *PathReconciler) handleDeletion(
 				"pathResource",
 				pathResource.Name,
 				"NamespacedName",
-				req.NamespacedName.String(),
+				req.Namespace,
 			)
 			return ctrl.Result{}, err
 		}
@@ -101,14 +101,13 @@ func (r *PathReconciler) finalizePath(ctx context.Context, pathResource *s3v1alp
 		pathResource.Namespace,
 		pathResource.Spec.S3InstanceRef,
 	)
-
 	if err != nil {
 		logger.Error(err, "An error occurred while getting s3Client")
 		return err
 	}
 
 	if s3Client.GetConfig().PathDeletionEnabled {
-		var failedPaths []string = make([]string, 0)
+		var failedPaths = make([]string, 0)
 		for _, path := range pathResource.Spec.Paths {
 
 			pathExists, err := s3Client.PathExists(pathResource.Spec.BucketName, path)

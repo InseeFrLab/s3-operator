@@ -31,9 +31,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 )
 
-//+kubebuilder:rbac:groups=s3.onyxia.sh,resources=buckets,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=s3.onyxia.sh,resources=buckets/status,verbs=get;update;patch
-//+kubebuilder:rbac:groups=s3.onyxia.sh,resources=buckets/finalizers,verbs=update
+// +kubebuilder:rbac:groups=s3.onyxia.sh,resources=buckets,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=s3.onyxia.sh,resources=buckets/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=s3.onyxia.sh,resources=buckets/finalizers,verbs=update
 
 // BucketReconciler reconciles a Bucket object
 type BucketReconciler struct {
@@ -49,6 +49,7 @@ type BucketReconciler struct {
 func (r *BucketReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&s3v1alpha1.Bucket{}).
+		Named("bucket").
 		// REF : https://sdk.operatorframework.io/docs/building-operators/golang/references/event-filtering/
 		WithEventFilter(predicate.Funcs{
 			UpdateFunc: func(e event.UpdateEvent) bool {

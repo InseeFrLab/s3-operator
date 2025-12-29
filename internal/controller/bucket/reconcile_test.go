@@ -93,7 +93,8 @@ func TestHandleUpdate(t *testing.T) {
 			Name:          "existing-bucket",
 			Paths:         []string{"example"},
 			S3InstanceRef: "s3-operator/default",
-			Quota:         s3v1alpha1.Quota{Default: *resource.NewQuantity(int64(10), resource.BinarySI)}},
+			Quota:         s3v1alpha1.Quota{Default: *resource.NewQuantity(int64(10), resource.BinarySI)},
+		},
 	}
 
 	// Create a fake client with a sample CR
@@ -108,7 +109,8 @@ func TestHandleUpdate(t *testing.T) {
 			Name:          "existing-invalid-bucket",
 			Paths:         []string{"example", "non-existing"},
 			S3InstanceRef: "s3-operator/default",
-			Quota:         s3v1alpha1.Quota{Default: *resource.NewQuantity(int64(100), resource.BinarySI)}},
+			Quota:         s3v1alpha1.Quota{Default: *resource.NewQuantity(int64(100), resource.BinarySI)},
+		},
 	}
 
 	// Add mock for s3Factory and client

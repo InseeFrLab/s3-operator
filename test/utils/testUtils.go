@@ -23,7 +23,7 @@ import (
 	s3client "github.com/InseeFrLab/s3-operator/internal/s3/client"
 	s3factory "github.com/InseeFrLab/s3-operator/internal/s3/factory"
 	"github.com/InseeFrLab/s3-operator/test/mocks"
-	"github.com/minio/madmin-go/v3"
+	"github.com/minio/madmin-go/v4"
 	"github.com/stretchr/testify/mock"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -42,7 +42,13 @@ func NewTestUtils() *TestUtils {
 }
 
 func (t *TestUtils) SetupMockedS3FactoryAndClient() {
-	mockedS3Client := mocks.NewMockedS3Client(s3client.S3Config{Region: "us-east-1", S3Url: "https://minio.example.com", Secure: true, Endpoint: "minio.example.com"})
+
+	mockedS3Client := mocks.NewMockedS3Client(s3client.S3Config{
+		Region:   "us-east-1",
+		S3Url:    "https://minio.example.com",
+		Secure:   true,
+		Endpoint: "minio.example.com",
+	})
 	mockedS3Client.On("BucketExists", "test-bucket").Return(false, nil)
 	mockedS3Client.On("BucketExists", "existing-bucket").Return(true, nil)
 	mockedS3Client.On("CreateBucket", "test-bucket").Return(nil)
@@ -66,7 +72,8 @@ func (t *TestUtils) SetupMockedS3FactoryAndClient() {
 }
 ]
 }`)
-	mockedS3Client.On("GetPolicyInfo", "existing-policy").Return(&madmin.PolicyInfo{PolicyName: "existing-policy", Policy: existingPolicy}, nil)
+	mockedS3Client.On("GetPolicyInfo", "existing-policy").Return(
+		&madmin.PolicyInfo{PolicyName: "existing-policy", Policy: existingPolicy}, nil)
 	mockedS3Client.On("CreateOrUpdatePolicy", "existing-policy", mock.AnythingOfType("string")).Return(nil)
 	mockedS3Client.On("CreateOrUpdatePolicy", "example-policy", "").Return(nil)
 	mockedS3Client.On("PathExists", "existing-bucket", "mypath").Return(false, nil)
@@ -79,10 +86,29 @@ func (t *TestUtils) SetupMockedS3FactoryAndClient() {
 	mockedS3Client.On("CreateUser", "existing-valid-user", mock.AnythingOfType("string")).Return(nil)
 	mockedS3Client.On("AddPoliciesToUser", "existing-valid-user", mock.AnythingOfType("[]string")).Return(nil)
 
-	mockedS3Client.On("CheckUserCredentialsValid", "existing-valid-user", "existing-valid-user", "invalidSecret").Return(false, nil)
-	mockedS3Client.On("CheckUserCredentialsValid", "existing-valid-user", "existing-valid-user", "invalidSecret").Return(false, nil)
-	mockedS3Client.On("CheckUserCredentialsValid", "existing-valid-user", "existing-valid-user", "validSecret").Return(true, nil)
-	mockedS3Client.On("CheckUserCredentialsValid", "existing-valid-user", "existing-valid-user", mock.AnythingOfType("string")).Return(true, nil)
+	mockedS3Client.On(
+		"CheckUserCredentialsValid",
+		"existing-valid-user",
+		"existing-valid-user",
+		"invalidSecret",
+	).Return(false, nil)
+	mockedS3Client.On(
+		"CheckUserCredentialsValid",
+		"existing-valid-user",
+		"existing-valid-user",
+		"invalidSecret",
+	).Return(false, nil)
+	mockedS3Client.On("CheckUserCredentialsValid",
+		"existing-valid-user",
+		"existing-valid-user",
+		"validSecret",
+	).Return(true, nil)
+	mockedS3Client.On(
+		"CheckUserCredentialsValid",
+		"existing-valid-user",
+		"existing-valid-user",
+		mock.AnythingOfType("string"),
+	).Return(true, nil)
 	mockedS3Client.On("GetQuota", "existing-bucket").Return(10, nil)
 	mockedS3Client.On("GetQuota", "existing-invalid-bucket").Return(10, nil)
 	mockedS3Client.On("SetQuota", "existing-invalid-bucket", int64(100)).Return(nil)
@@ -175,14 +201,19 @@ func (t *TestUtils) GenerateBasicS3InstanceAndSecret() (*s3v1alpha1.S3Instance, 
 func (t *TestUtils) SetupClient(objects []client.Object) {
 	// Register the custom resource with the scheme	sch := runtime.NewScheme()
 	s := scheme.Scheme
-	s3v1alpha1.AddToScheme(s)
-	corev1.AddToScheme(s)
-
-	client := fake.NewClientBuilder().
+	err := s3v1alpha1.AddToScheme(s)
+	if err != nil {
+		panic(err)
+	}
+	err = corev1.AddToScheme(s)
+	if err != nil {
+		panic(err)
+	}
+	cl := fake.NewClientBuilder().
 		WithScheme(s).
 		WithObjects(objects...).
 		WithStatusSubresource(objects...).
 		Build()
 
-	t.Client = client
+	t.Client = cl
 }

@@ -37,7 +37,6 @@ import (
 )
 
 func TestSetReconciledCondition(t *testing.T) {
-
 	log.SetLogger(zap.New(zap.UseDevMode(true)))
 
 	s3instanceResource := &s3v1alpha1.S3Instance{
@@ -59,14 +58,14 @@ func TestSetReconciledCondition(t *testing.T) {
 			DeletionTimestamp: &metav1.Time{Time: time.Now()},
 		},
 	}
-	testUtils := testUtils.NewTestUtils()
-	testUtils.SetupClient([]client.Object{s3instanceResource})
+	tu := testUtils.NewTestUtils()
+	tu.SetupClient([]client.Object{s3instanceResource})
 	controllerHelper := helpers.NewControllerHelper()
 
 	t.Run("no error", func(t *testing.T) {
 		_, err := controllerHelper.SetReconciledCondition(
 			context.TODO(),
-			testUtils.Client.Status(),
+			tu.Client.Status(),
 			ctrl.Request{NamespacedName: types.NamespacedName{Name: s3instanceResource.Name, Namespace: s3instanceResource.Namespace}},
 			s3instanceResource,
 			&s3instanceResource.Status.Conditions,
@@ -80,7 +79,7 @@ func TestSetReconciledCondition(t *testing.T) {
 
 	t.Run("ressource status have changed", func(t *testing.T) {
 		s3instanceResourceUpdated := &s3v1alpha1.S3Instance{}
-		err := testUtils.Client.Get(context.TODO(), client.ObjectKey{
+		err := tu.Client.Get(context.TODO(), client.ObjectKey{
 			Namespace: "s3-operator",
 			Name:      "default",
 		}, s3instanceResourceUpdated)
@@ -92,7 +91,7 @@ func TestSetReconciledCondition(t *testing.T) {
 	t.Run("with error", func(t *testing.T) {
 		_, err := controllerHelper.SetReconciledCondition(
 			context.TODO(),
-			testUtils.Client.Status(),
+			tu.Client.Status(),
 			ctrl.Request{NamespacedName: types.NamespacedName{Name: s3instanceResource.Name, Namespace: s3instanceResource.Namespace}},
 			s3instanceResource,
 			&s3instanceResource.Status.Conditions,
@@ -103,12 +102,11 @@ func TestSetReconciledCondition(t *testing.T) {
 		)
 
 		assert.NotNil(t, err)
-
 	})
 
 	t.Run("ressource status have changed", func(t *testing.T) {
 		s3instanceResourceUpdated := &s3v1alpha1.S3Instance{}
-		err := testUtils.Client.Get(context.TODO(), client.ObjectKey{
+		err := tu.Client.Get(context.TODO(), client.ObjectKey{
 			Namespace: "s3-operator",
 			Name:      "default",
 		}, s3instanceResourceUpdated)

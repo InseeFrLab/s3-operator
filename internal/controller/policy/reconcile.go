@@ -31,7 +31,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	s3v1alpha1 "github.com/InseeFrLab/s3-operator/api/v1alpha1"
-	"github.com/minio/madmin-go/v3"
+	"github.com/minio/madmin-go/v4"
 )
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
@@ -80,7 +80,7 @@ func (r *PolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 				"bucketName",
 				policyResource.Spec.Name,
 				"NamespacedName",
-				req.NamespacedName.String(),
+				req.Namespace,
 			)
 			return ctrl.Result{}, err
 		}
@@ -97,7 +97,7 @@ func (r *PolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 				"policyName",
 				policyResource.Spec.Name,
 				"NamespacedName",
-				req.NamespacedName.String(),
+				req.Namespace,
 			)
 			return ctrl.Result{}, err
 		}
@@ -106,7 +106,7 @@ func (r *PolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	// Add finalizer for this CR
 	if !controllerutil.ContainsFinalizer(policyResource, policyFinalizer) {
 		logger.Info("Adding finalizer to policy resource", "PolicyName",
-			policyResource.Spec.Name, "NamespacedName", req.NamespacedName.String())
+			policyResource.Spec.Name, "NamespacedName", req.Namespace)
 		if ok := controllerutil.AddFinalizer(policyResource, policyFinalizer); !ok {
 			logger.Error(
 				err,
@@ -114,7 +114,7 @@ func (r *PolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 				"policyName",
 				policyResource.Spec.Name,
 				"NamespacedName",
-				req.NamespacedName.String(),
+				req.Namespace,
 			)
 			return ctrl.Result{Requeue: true}, nil
 		}
@@ -127,7 +127,7 @@ func (r *PolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 				"policyResource",
 				policyResource.Spec.Name,
 				"NamespacedName",
-				req.NamespacedName.String(),
+				req.Namespace,
 			)
 			return ctrl.Result{}, err
 		}
@@ -144,7 +144,7 @@ func (r *PolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 				"policyName",
 				policyResource.Spec.Name,
 				"NamespacedName",
-				req.NamespacedName.String(),
+				req.Namespace,
 			)
 			return ctrl.Result{}, err
 		}
@@ -156,13 +156,12 @@ func (r *PolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		logger.Info("policyResource have been marked for deletion", "policyName",
 			policyResource.Spec.Name,
 			"NamespacedName",
-			req.NamespacedName.String())
+			req.Namespace)
 		return r.handleDeletion(ctx, req, policyResource)
 	}
 
 	// Policy lifecycle management (other than deletion) starts here
 	return r.handleReconciliation(ctx, req, policyResource)
-
 }
 
 func (r *PolicyReconciler) handleReconciliation(
@@ -201,7 +200,7 @@ func (r *PolicyReconciler) handleReconciliation(
 			"policyName",
 			policyResource.Spec.Name,
 			"NamespacedName",
-			req.NamespacedName.String(),
+			req.Namespace,
 		)
 		return r.SetReconciledCondition(
 			ctx,
@@ -236,7 +235,6 @@ func (r *PolicyReconciler) handleUpdate(
 		policyResource.Namespace,
 		policyResource.Spec.S3InstanceRef,
 	)
-
 	if err != nil {
 		logger.Error(err, "an error occurred while getting s3Client")
 		return r.SetReconciledCondition(
@@ -258,7 +256,7 @@ func (r *PolicyReconciler) handleUpdate(
 			"policyName",
 			policyResource.Spec.Name,
 			"NamespacedName",
-			req.NamespacedName.String(),
+			req.Namespace,
 		)
 		return r.SetReconciledCondition(
 			ctx,
@@ -278,7 +276,7 @@ func (r *PolicyReconciler) handleUpdate(
 			"policyName",
 			policyResource.Spec.Name,
 			"NamespacedName",
-			req.NamespacedName.String(),
+			req.Namespace,
 		)
 		return r.SetReconciledCondition(
 			ctx,
@@ -306,9 +304,9 @@ func (r *PolicyReconciler) handleUpdate(
 				"policyName",
 				policyResource.Spec.Name,
 				"NamespacedName",
-				req.NamespacedName.String(),
+				req.Namespace,
 			)
-			r.SetReconciledCondition(
+			if _, err := r.SetReconciledCondition(
 				ctx,
 				req,
 				policyResource,
@@ -318,7 +316,9 @@ func (r *PolicyReconciler) handleUpdate(
 					policyResource.Spec.Name,
 				),
 				err,
-			)
+			); err != nil {
+				return ctrl.Result{}, err
+			}
 		}
 	}
 
@@ -333,7 +333,8 @@ func (r *PolicyReconciler) handleUpdate(
 }
 
 func (r *PolicyReconciler) handleCreation(ctx context.Context, req reconcile.Request,
-	policyResource *s3v1alpha1.Policy) (reconcile.Result, error) {
+	policyResource *s3v1alpha1.Policy,
+) (reconcile.Result, error) {
 	logger := log.FromContext(ctx)
 
 	s3Client, err := r.S3Instancehelper.GetS3ClientForRessource(
@@ -344,7 +345,6 @@ func (r *PolicyReconciler) handleCreation(ctx context.Context, req reconcile.Req
 		policyResource.Namespace,
 		policyResource.Spec.S3InstanceRef,
 	)
-
 	if err != nil {
 		logger.Error(err, "An error occurred while getting s3Client")
 		return r.SetReconciledCondition(
@@ -361,7 +361,6 @@ func (r *PolicyReconciler) handleCreation(ctx context.Context, req reconcile.Req
 		policyResource.Spec.Name,
 		policyResource.Spec.PolicyContent,
 	)
-
 	if err != nil {
 		logger.Error(
 			err,
@@ -369,7 +368,7 @@ func (r *PolicyReconciler) handleCreation(ctx context.Context, req reconcile.Req
 			"policyName",
 			policyResource.Spec.Name,
 			"NamespacedName",
-			req.NamespacedName.String(),
+			req.Namespace,
 		)
 		return r.SetReconciledCondition(
 			ctx,

@@ -45,17 +45,17 @@ func (r *S3InstanceReconciler) handleS3InstanceDeletion(
 			s3InstanceResource.GetName(),
 		)
 
-		// Vérifier les références existantes
+		// Check for references to this S3Instance
 		if err := r.checkS3InstanceReferences(ctx, s3InstanceResource); err != nil {
 			return ctrl.Result{}, err
 		}
 
-		//Remove s3InstanceFinalizer. Once all finalizers have been removed, the object will be deleted.
+		// Remove s3InstanceFinalizer. Once all finalizers have been removed, the object will be deleted.
 		if ok := controllerutil.RemoveFinalizer(s3InstanceResource, s3InstanceFinalizer); !ok {
 			logger.Info(
 				"Failed to remove finalizer for S3Instance",
 				"NamespacedName",
-				req.NamespacedName.String(),
+				req.Namespace,
 			)
 			return ctrl.Result{Requeue: true}, nil
 		}
@@ -70,7 +70,7 @@ func (r *S3InstanceReconciler) handleS3InstanceDeletion(
 				err,
 				"Failed to remove finalizer for S3Instance",
 				"NamespacedName",
-				req.NamespacedName.String(),
+				req.Namespace,
 			)
 			return ctrl.Result{}, err
 		}

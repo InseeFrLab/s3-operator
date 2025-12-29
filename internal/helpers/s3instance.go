@@ -34,8 +34,8 @@ import (
 
 func (s3InstanceHelper *S3InstanceHelper) GetS3ClientForRessource(
 	ctx context.Context,
-	client client.Client,
-	s3factory s3factory.S3Factory,
+	cl client.Client,
+	s3Factory s3factory.S3Factory,
 	ressourceName string,
 	ressourceNamespace string,
 	ressourceS3InstanceRef string,
@@ -44,12 +44,11 @@ func (s3InstanceHelper *S3InstanceHelper) GetS3ClientForRessource(
 	logger.Info(fmt.Sprintf("Resource refer to s3Instance %s", ressourceS3InstanceRef))
 	s3InstanceInfo := s3InstanceHelper.GetS3InstanceRefInfo(ressourceS3InstanceRef, ressourceNamespace)
 	s3Instance := &s3v1alpha1.S3Instance{}
-	err := client.Get(
+	err := cl.Get(
 		ctx,
 		types.NamespacedName{Namespace: s3InstanceInfo.namespace, Name: s3InstanceInfo.name},
 		s3Instance,
 	)
-
 	if err != nil {
 		if k8sapierrors.IsNotFound(err) {
 			return nil, fmt.Errorf("S3Instance %s not found", s3InstanceInfo.name)
@@ -73,18 +72,18 @@ func (s3InstanceHelper *S3InstanceHelper) GetS3ClientForRessource(
 		return nil, fmt.Errorf("S3instance is not in a ready state")
 	}
 
-	return s3InstanceHelper.GetS3ClientFromS3Instance(ctx, client, s3factory, s3Instance)
+	return s3InstanceHelper.GetS3ClientFromS3Instance(ctx, cl, s3Factory, s3Instance)
 }
 
 func (s3InstanceHelper *S3InstanceHelper) GetS3ClientFromS3Instance(
 	ctx context.Context,
-	client client.Client,
-	s3factory s3factory.S3Factory,
+	cl client.Client,
+	s3Factory s3factory.S3Factory,
 	s3InstanceResource *s3v1alpha1.S3Instance,
 ) (s3client.S3Client, error) {
 	logger := log.FromContext(ctx)
 
-	s3InstanceSecretSecret, err := s3InstanceHelper.getS3InstanceAccessSecret(ctx, client, s3InstanceResource)
+	s3InstanceSecretSecret, err := s3InstanceHelper.getS3InstanceAccessSecret(ctx, cl, s3InstanceResource)
 	if err != nil {
 		logger.Error(
 			err,
@@ -99,7 +98,7 @@ func (s3InstanceHelper *S3InstanceHelper) GetS3ClientFromS3Instance(
 
 	var s3InstanceCaCertificates []string
 	if s3InstanceResource.Spec.CaCertSecretRef != "" {
-		s3InstanceCaCertSecret, err := s3InstanceHelper.getS3InstanceCaCertSecret(ctx, client, s3InstanceResource)
+		s3InstanceCaCertSecret, err := s3InstanceHelper.getS3InstanceCaCertSecret(ctx, cl, s3InstanceResource)
 		if err != nil {
 			logger.Error(
 				err,
@@ -133,16 +132,16 @@ func (s3InstanceHelper *S3InstanceHelper) GetS3ClientFromS3Instance(
 		PathDeletionEnabled:   s3InstanceResource.Spec.PathDeletionEnabled,
 	}
 
-	return s3factory.GenerateS3Client(s3Config.S3Provider, s3Config)
+	return s3Factory.GenerateS3Client(s3Config.S3Provider, s3Config)
 }
 
 func (s3InstanceHelper *S3InstanceHelper) getS3InstanceAccessSecret(
 	ctx context.Context,
-	client client.Client,
+	cl client.Client,
 	s3InstanceResource *s3v1alpha1.S3Instance,
 ) (corev1.Secret, error) {
 	s3InstanceSecret := &corev1.Secret{}
-	err := client.Get(
+	err := cl.Get(
 		ctx,
 		types.NamespacedName{
 			Namespace: s3InstanceResource.Namespace,
@@ -165,7 +164,7 @@ func (s3InstanceHelper *S3InstanceHelper) getS3InstanceAccessSecret(
 
 func (s3InstanceHelper *S3InstanceHelper) getS3InstanceCaCertSecret(
 	ctx context.Context,
-	client client.Client,
+	cl client.Client,
 	s3InstanceResource *s3v1alpha1.S3Instance,
 ) (corev1.Secret, error) {
 	logger := log.FromContext(ctx)
@@ -177,7 +176,7 @@ func (s3InstanceHelper *S3InstanceHelper) getS3InstanceCaCertSecret(
 		return *s3InstanceCaCertSecret, nil
 	}
 
-	err := client.Get(
+	err := cl.Get(
 		ctx,
 		types.NamespacedName{
 			Namespace: s3InstanceResource.Namespace,
@@ -247,8 +246,7 @@ func (s3InstanceInfo S3InstanceInfo) Equal(s3InstanceInfoName string, s3Instance
 	return s3InstanceInfo.name == s3InstanceInfoName && s3InstanceInfo.namespace == s3InstanceInfoNamespace
 }
 
-type S3InstanceHelper struct {
-}
+type S3InstanceHelper struct{}
 
 func NewS3InstanceHelper() *S3InstanceHelper {
 	return &S3InstanceHelper{}

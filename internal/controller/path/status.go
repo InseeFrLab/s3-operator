@@ -44,5 +44,4 @@ func (r *PathReconciler) SetReconciledCondition(
 		err,
 		r.ReconcilePeriod,
 	)
-
 }

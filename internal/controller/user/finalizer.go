@@ -66,7 +66,7 @@ func (r *S3UserReconciler) handleDeletion(
 				"userResource",
 				userResource.Name,
 				"NamespacedName",
-				req.NamespacedName.String(),
+				req.Namespace,
 			)
 			return r.SetReconciledCondition(
 				ctx,
@@ -86,7 +86,7 @@ func (r *S3UserReconciler) handleDeletion(
 				"userResourceName",
 				userResource.Name,
 				"NamespacedName",
-				req.NamespacedName.String(),
+				req.Namespace,
 			)
 			return r.SetReconciledCondition(
 				ctx,
@@ -105,7 +105,7 @@ func (r *S3UserReconciler) handleDeletion(
 					"userResourceName",
 					userResource.Name,
 					"NamespacedName",
-					req.NamespacedName.String(),
+					req.Namespace,
 					"secretName",
 					linkedSecret.Name,
 				)
@@ -118,17 +118,16 @@ func (r *S3UserReconciler) handleDeletion(
 					err,
 				)
 			}
-
 		}
 
-		//Remove userFinalizer. Once all finalizers have been removed, the object will be deleted.
+		// Remove userFinalizer. Once all finalizers have been removed, the object will be deleted.
 		if ok := controllerutil.RemoveFinalizer(userResource, userFinalizer); !ok {
 			logger.Info(
 				"Failed to remove finalizer for user resource",
 				"userResource",
 				userResource.Name,
 				"NamespacedName",
-				req.NamespacedName.String(),
+				req.Namespace,
 			)
 			return ctrl.Result{Requeue: true}, nil
 		}
@@ -145,7 +144,7 @@ func (r *S3UserReconciler) handleDeletion(
 				"userResource",
 				userResource.Name,
 				"NamespacedName",
-				req.NamespacedName.String(),
+				req.Namespace,
 			)
 			return ctrl.Result{}, err
 		}

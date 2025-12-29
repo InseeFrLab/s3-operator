@@ -43,7 +43,7 @@ func (r *BucketReconciler) handleDeletion(
 				"bucketName",
 				bucketResource.Spec.Name,
 				"NamespacedName",
-				req.NamespacedName.String(),
+				req.Namespace,
 			)
 			return r.SetReconciledCondition(
 				ctx,
@@ -61,7 +61,7 @@ func (r *BucketReconciler) handleDeletion(
 				"bucketName",
 				bucketResource.Spec.Name,
 				"NamespacedName",
-				req.NamespacedName.String(),
+				req.Namespace,
 			)
 			return ctrl.Result{Requeue: true}, nil
 		}
@@ -78,7 +78,7 @@ func (r *BucketReconciler) handleDeletion(
 				"bucketName",
 				bucketResource.Spec.Name,
 				"NamespacedName",
-				req.NamespacedName.String(),
+				req.Namespace,
 			)
 			return ctrl.Result{}, err
 		}

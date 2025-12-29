@@ -18,13 +18,15 @@ package s3clientimpl
 
 import (
 	s3client "github.com/InseeFrLab/s3-operator/internal/s3/client"
-	"github.com/minio/madmin-go/v3"
+	"github.com/minio/madmin-go/v4"
 	ctrl "sigs.k8s.io/controller-runtime"
 )
 
 type MockedS3Client struct {
 	s3Config s3client.S3Config
 }
+
+var _ s3client.S3Client = (*MockedS3Client)(nil)
 
 func (mockedS3Provider *MockedS3Client) BucketExists(name string) (bool, error) {
 	s3Logger := ctrl.Log.WithValues("logger", "s3ClientImplMocked")

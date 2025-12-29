@@ -35,15 +35,15 @@ import (
 )
 
 func TestGetS3ClientForRessource(t *testing.T) {
-
 	// Set up a logger before running tests
 	log.SetLogger(zap.New(zap.UseDevMode(true)))
 
 	// Register the custom resource with the scheme	sch := runtime.NewScheme()
 	s := scheme.Scheme
-	s3v1alpha1.AddToScheme(s)
-	corev1.AddToScheme(s)
-
+	err := s3v1alpha1.AddToScheme(s)
+	assert.NoError(t, err)
+	err = corev1.AddToScheme(s)
+	assert.NoError(t, err)
 	s3Instance := &s3v1alpha1.S3Instance{
 		Spec: s3v1alpha1.S3InstanceSpec{
 			AllowedNamespaces:     []string{"default", "test-*", "*-namespace", "*allowed*"},
@@ -122,8 +122,10 @@ func TestGetS3ClientFromS3instance(t *testing.T) {
 
 	// Register the custom resource with the scheme	sch := runtime.NewScheme()
 	s := scheme.Scheme
-	s3v1alpha1.AddToScheme(s)
-	corev1.AddToScheme(s)
+	err := s3v1alpha1.AddToScheme(s)
+	assert.NoError(t, err)
+	err = corev1.AddToScheme(s)
+	assert.NoError(t, err)
 
 	s3Instance := &s3v1alpha1.S3Instance{
 		Spec: s3v1alpha1.S3InstanceSpec{

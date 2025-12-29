@@ -77,7 +77,7 @@ func (r *PathReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 				"pathResourceName",
 				pathResource.Name,
 				"NamespacedName",
-				req.NamespacedName.String(),
+				req.Namespace,
 			)
 			return ctrl.Result{}, err
 		}
@@ -94,7 +94,7 @@ func (r *PathReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 				"pathResourceName",
 				pathResource.Name,
 				"NamespacedName",
-				req.NamespacedName.String(),
+				req.Namespace,
 			)
 			return ctrl.Result{}, err
 		}
@@ -103,13 +103,13 @@ func (r *PathReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	// Add finalizer for this CR
 	if !controllerutil.ContainsFinalizer(pathResource, pathFinalizer) {
 		logger.Info("Adding finalizer to pathResource", "pathResourceName",
-			pathResource.Name, "NamespacedName", req.NamespacedName.String())
+			pathResource.Name, "NamespacedName", req.Namespace)
 		if ok := controllerutil.AddFinalizer(pathResource, pathFinalizer); !ok {
 			logger.Error(
 				err,
 				"Failed to add finalizer into pathResource",
 				"pathResourceName",
-				pathResource.Name, "NamespacedName", req.NamespacedName.String())
+				pathResource.Name, "NamespacedName", req.Namespace)
 			return ctrl.Result{Requeue: true}, nil
 		}
 
@@ -118,7 +118,7 @@ func (r *PathReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 				err,
 				"an error occurred when adding finalizer on pathResource",
 				"pathResourceName",
-				pathResource.Name, "NamespacedName", req.NamespacedName.String(),
+				pathResource.Name, "NamespacedName", req.Namespace,
 			)
 			return ctrl.Result{}, err
 		}
@@ -128,7 +128,7 @@ func (r *PathReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 				err,
 				"Failed to re-fetch pathResource",
 				"pathResourceName",
-				pathResource.Name, "NamespacedName", req.NamespacedName.String(),
+				pathResource.Name, "NamespacedName", req.Namespace,
 			)
 			return ctrl.Result{}, err
 		}
@@ -140,12 +140,11 @@ func (r *PathReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 		logger.Info("pathResource have been marked for deletion", "pathResourceName",
 			pathResource.Name,
 			"NamespacedName",
-			req.NamespacedName.String())
+			req.Namespace)
 		return r.handleDeletion(ctx, req, pathResource)
 	}
 
 	return r.handleReconciliation(ctx, req, pathResource)
-
 }
 
 func (r *PathReconciler) handleReconciliation(
@@ -153,7 +152,6 @@ func (r *PathReconciler) handleReconciliation(
 	req reconcile.Request,
 	pathResource *s3v1alpha1.Path,
 ) (reconcile.Result, error) {
-
 	logger := log.FromContext(ctx)
 
 	// Create S3Client
@@ -188,7 +186,7 @@ func (r *PathReconciler) handleReconciliation(
 			"bucketName",
 			pathResource.Spec.BucketName,
 			"NamespacedName",
-			req.NamespacedName.String(),
+			req.Namespace,
 		)
 		return r.SetReconciledCondition(
 			ctx,
@@ -210,7 +208,7 @@ func (r *PathReconciler) handleReconciliation(
 		logger.Error(errorBucketNotFound, errorBucketNotFound.Error(), "pathResourceName",
 			pathResource.Name,
 			"NamespacedName",
-			req.NamespacedName.String())
+			req.Namespace)
 		return r.SetReconciledCondition(
 			ctx,
 			req,
@@ -244,7 +242,7 @@ func (r *PathReconciler) handleReconciliation(
 				"bucketName",
 				pathResource.Spec.BucketName,
 				"NamespacedName",
-				req.NamespacedName.String(),
+				req.Namespace,
 			)
 			return r.SetReconciledCondition(
 				ctx,
@@ -267,7 +265,7 @@ func (r *PathReconciler) handleReconciliation(
 					"bucketName",
 					pathResource.Spec.BucketName,
 					"NamespacedName",
-					req.NamespacedName.String(),
+					req.Namespace,
 				)
 				return r.SetReconciledCondition(
 					ctx,

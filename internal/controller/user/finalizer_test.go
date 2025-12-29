@@ -14,7 +14,6 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-
 package user_controller_test
 
 import (
@@ -35,7 +34,6 @@ import (
 )
 
 func TestHandleDelete(t *testing.T) {
-
 	// Set up a logger before running tests
 	log.SetLogger(zap.New(zap.UseDevMode(true)))
 
@@ -98,9 +96,10 @@ func TestHandleDelete(t *testing.T) {
 		S3factory: testUtils.S3Factory,
 	}
 	req := ctrl.Request{NamespacedName: types.NamespacedName{Name: s3UserResource.Name, Namespace: s3UserResource.Namespace}}
-	reconciler.Reconcile(context.TODO(), req)
-	testUtils.Client.Delete(context.TODO(), s3UserResource)
-
+	_, err := reconciler.Reconcile(context.TODO(), req)
+	assert.NoError(t, err)
+	err = testUtils.Client.Delete(context.TODO(), s3UserResource)
+	assert.NoError(t, err)
 	t.Run("no error", func(t *testing.T) {
 		// Call Reconcile function
 		req := ctrl.Request{NamespacedName: types.NamespacedName{Name: s3UserResource.Name, Namespace: s3UserResource.Namespace}}
@@ -111,9 +110,10 @@ func TestHandleDelete(t *testing.T) {
 	t.Run("ressource have been deleted", func(t *testing.T) {
 		// Call Reconcile function
 		req := ctrl.Request{NamespacedName: types.NamespacedName{Name: s3UserResource.Name, Namespace: s3UserResource.Namespace}}
-		reconciler.Reconcile(context.TODO(), req)
+		_, err := reconciler.Reconcile(context.TODO(), req)
+		assert.NoError(t, err)
 		s3UserResource := &s3v1alpha1.S3User{}
-		err := testUtils.Client.Get(context.TODO(), client.ObjectKey{
+		err = testUtils.Client.Get(context.TODO(), client.ObjectKey{
 			Namespace: "default",
 			Name:      "example-user",
 		}, s3UserResource)
@@ -127,7 +127,5 @@ func TestHandleDelete(t *testing.T) {
 		}, s3UserSecret)
 		assert.NotNil(t, err)
 		assert.ErrorContains(t, err, "secrets \"existing-valid-user-credentials\" not found")
-
 	})
-
 }

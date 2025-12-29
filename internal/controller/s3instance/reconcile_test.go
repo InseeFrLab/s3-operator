@@ -99,7 +99,6 @@ func TestHandleCreate(t *testing.T) {
 	}
 
 	t.Run("no error", func(t *testing.T) {
-
 		// Call Reconcile function
 		req := ctrl.Request{NamespacedName: types.NamespacedName{Name: s3instanceResource.Name, Namespace: s3instanceResource.Namespace}}
 		_, err := reconciler.Reconcile(context.TODO(), req)
@@ -107,10 +106,10 @@ func TestHandleCreate(t *testing.T) {
 	})
 
 	t.Run("finalizer is added", func(t *testing.T) {
-
 		// Call Reconcile function
 		req := ctrl.Request{NamespacedName: types.NamespacedName{Name: s3instanceResource.Name, Namespace: s3instanceResource.Namespace}}
-		reconciler.Reconcile(context.TODO(), req)
+		_, err := reconciler.Reconcile(context.TODO(), req)
+		assert.NoError(t, err)
 
 		// FetchReconciledInstance
 		reconciledInstance := &s3v1alpha1.S3Instance{}
@@ -123,10 +122,10 @@ func TestHandleCreate(t *testing.T) {
 	})
 
 	t.Run("status is reconciled", func(t *testing.T) {
-
 		// Call Reconcile function
 		req := ctrl.Request{NamespacedName: types.NamespacedName{Name: s3instanceResource.Name, Namespace: s3instanceResource.Namespace}}
-		reconciler.Reconcile(context.TODO(), req)
+		_, err := reconciler.Reconcile(context.TODO(), req)
+		assert.NoError(t, err)
 
 		// FetchReconciledInstance
 		reconciledInstance := &s3v1alpha1.S3Instance{}
@@ -139,10 +138,10 @@ func TestHandleCreate(t *testing.T) {
 	})
 
 	t.Run("reason is creation failure because of invalid client", func(t *testing.T) {
-
 		// Call Reconcile function
 		req := ctrl.Request{NamespacedName: types.NamespacedName{Name: s3instanceResourceInvalid.Name, Namespace: s3instanceResourceInvalid.Namespace}}
-		reconciler.Reconcile(context.TODO(), req)
+		_, err := reconciler.Reconcile(context.TODO(), req)
+		assert.NotNil(t, err)
 
 		// 4️⃣ FetchReconciledInstance
 		reconciledInstance := &s3v1alpha1.S3Instance{}

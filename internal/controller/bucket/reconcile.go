@@ -77,7 +77,7 @@ func (r *BucketReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 				"bucketName",
 				bucketResource.Spec.Name,
 				"NamespacedName",
-				req.NamespacedName.String(),
+				req.Namespace,
 			)
 			return ctrl.Result{}, err
 		}
@@ -94,7 +94,7 @@ func (r *BucketReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 				"bucketName",
 				bucketResource.Spec.Name,
 				"NamespacedName",
-				req.NamespacedName.String(),
+				req.Namespace,
 			)
 			return ctrl.Result{}, err
 		}
@@ -103,7 +103,7 @@ func (r *BucketReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	// Add finalizer for this CR
 	if !controllerutil.ContainsFinalizer(bucketResource, bucketFinalizer) {
 		logger.Info("Adding finalizer to bucket resource", "bucketName",
-			bucketResource.Spec.Name, "NamespacedName", req.NamespacedName.String())
+			bucketResource.Spec.Name, "NamespacedName", req.Namespace)
 		if ok := controllerutil.AddFinalizer(bucketResource, bucketFinalizer); !ok {
 			logger.Error(
 				err,
@@ -111,7 +111,7 @@ func (r *BucketReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 				"bucketName",
 				bucketResource.Spec.Name,
 				"NamespacedName",
-				req.NamespacedName.String(),
+				req.Namespace,
 			)
 			return ctrl.Result{Requeue: true}, nil
 		}
@@ -123,7 +123,7 @@ func (r *BucketReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 				"bucketName",
 				bucketResource.Spec.Name,
 				"NamespacedName",
-				req.NamespacedName.String(),
+				req.Namespace,
 			)
 			return ctrl.Result{}, err
 		}
@@ -135,7 +135,7 @@ func (r *BucketReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 				"bucketName",
 				bucketResource.Spec.Name,
 				"NamespacedName",
-				req.NamespacedName.String(),
+				req.Namespace,
 			)
 			return ctrl.Result{}, err
 		}
@@ -147,12 +147,11 @@ func (r *BucketReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		logger.Info("bucketResource have been marked for deletion", "bucketName",
 			bucketResource.Spec.Name,
 			"NamespacedName",
-			req.NamespacedName.String())
+			req.Namespace)
 		return r.handleDeletion(ctx, req, bucketResource)
 	}
 
 	return r.handleReconciliation(ctx, req, bucketResource)
-
 }
 
 func (r *BucketReconciler) handleReconciliation(
@@ -192,7 +191,7 @@ func (r *BucketReconciler) handleReconciliation(
 			"bucketName",
 			bucketResource.Spec.Name,
 			"NamespacedName",
-			req.NamespacedName.String(),
+			req.Namespace,
 		)
 		return r.SetReconciledCondition(
 			ctx,
@@ -211,7 +210,6 @@ func (r *BucketReconciler) handleReconciliation(
 	}
 
 	return r.handleUpdate(ctx, req, bucketResource)
-
 }
 
 func (r *BucketReconciler) handleUpdate(
@@ -236,7 +234,7 @@ func (r *BucketReconciler) handleUpdate(
 			"bucketName",
 			bucketResource.Spec.Name,
 			"NamespacedName",
-			req.NamespacedName.String(),
+			req.Namespace,
 		)
 		return r.SetReconciledCondition(
 			ctx,
@@ -260,7 +258,7 @@ func (r *BucketReconciler) handleUpdate(
 			"bucketName",
 			bucketResource.Spec.Name,
 			"NamespacedName",
-			req.NamespacedName.String(),
+			req.Namespace,
 		)
 		return r.SetReconciledCondition(
 			ctx,
@@ -284,7 +282,7 @@ func (r *BucketReconciler) handleUpdate(
 			"bucketName",
 			bucketResource.Spec.Name,
 			"NamespacedName",
-			req.NamespacedName.String(),
+			req.Namespace,
 		)
 		return r.SetReconciledCondition(
 			ctx,
@@ -304,7 +302,7 @@ func (r *BucketReconciler) handleUpdate(
 				"bucketName",
 				bucketResource.Spec.Name,
 				"NamespacedName",
-				req.NamespacedName.String(),
+				req.Namespace,
 			)
 			return r.SetReconciledCondition(
 				ctx,
@@ -326,7 +324,7 @@ func (r *BucketReconciler) handleUpdate(
 				"bucketName",
 				bucketResource.Spec.Name,
 				"NamespacedName",
-				req.NamespacedName.String(),
+				req.Namespace,
 			)
 			return r.SetReconciledCondition(
 				ctx,
@@ -361,7 +359,7 @@ func (r *BucketReconciler) handleUpdate(
 				"bucketName",
 				bucketResource.Spec.Name,
 				"NamespacedName",
-				req.NamespacedName.String(),
+				req.Namespace,
 			)
 			return r.SetReconciledCondition(
 				ctx,
@@ -384,7 +382,7 @@ func (r *BucketReconciler) handleUpdate(
 					"bucketName",
 					bucketResource.Spec.Name,
 					"NamespacedName",
-					req.NamespacedName.String(),
+					req.Namespace,
 				)
 				return r.SetReconciledCondition(
 					ctx,
@@ -430,7 +428,7 @@ func (r *BucketReconciler) handleCreation(
 			"bucketName",
 			bucketResource.Spec.Name,
 			"NamespacedName",
-			req.NamespacedName.String(),
+			req.Namespace,
 		)
 		return r.SetReconciledCondition(
 			ctx,
@@ -451,7 +449,7 @@ func (r *BucketReconciler) handleCreation(
 			"bucketName",
 			bucketResource.Spec.Name,
 			"NamespacedName",
-			req.NamespacedName.String(),
+			req.Namespace,
 		)
 		return r.SetReconciledCondition(
 			ctx,
@@ -472,7 +470,7 @@ func (r *BucketReconciler) handleCreation(
 			"bucketName",
 			bucketResource.Spec.Name,
 			"NamespacedName",
-			req.NamespacedName.String(),
+			req.Namespace,
 		)
 		return r.SetReconciledCondition(
 			ctx,
@@ -491,7 +489,7 @@ func (r *BucketReconciler) handleCreation(
 			"bucketName",
 			bucketResource.Spec.Name,
 			"NamespacedName",
-			req.NamespacedName.String(),
+			req.Namespace,
 		)
 		return r.SetReconciledCondition(
 			ctx,
@@ -519,7 +517,7 @@ func (r *BucketReconciler) handleCreation(
 				"bucketName",
 				bucketResource.Spec.Name,
 				"NamespacedName",
-				req.NamespacedName.String(),
+				req.Namespace,
 			)
 			return r.SetReconciledCondition(
 				ctx,

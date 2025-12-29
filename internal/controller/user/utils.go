@@ -95,19 +95,19 @@ func (r *S3UserReconciler) getUserLinkedSecrets(
 	// handled differently.
 	uid := userResource.GetUID()
 
-	var secretConfiguredName string = userResource.Spec.SecretName
-	var secretDefaultName string = userResource.Name
+	var secretConfiguredName = userResource.Spec.SecretName
+	var secretDefaultName = userResource.Name
 	var notOwnedConfiguredSecret *corev1.Secret
 	// cmp.Or takes the first non "zero" value, see https://pkg.go.dev/cmp#Or
 	for _, secret := range secretsList.Items {
-		var secretLinked = false
+		secretLinked := false
 		for _, ref := range secret.OwnerReferences {
 			if ref.UID == uid {
 				userOwnedSecretList = append(userOwnedSecretList, secret)
 				secretLinked = true
 			}
 		}
-		if (!secretLinked) {
+		if !secretLinked {
 			if secret.Name == secretConfiguredName {
 				notOwnedConfiguredSecret = &secret
 			} else if secret.Name == secretDefaultName && notOwnedConfiguredSecret == nil {
@@ -143,12 +143,12 @@ func (r *S3UserReconciler) newSecretForCR(
 	// Reusing the S3User's labels and annotations
 	labels := map[string]string{}
 	labels["app.kubernetes.io/created-by"] = "s3-operator"
-	for k, v := range userResource.ObjectMeta.Labels {
+	for k, v := range userResource.Labels {
 		labels[k] = v
 	}
 
 	annotations := map[string]string{}
-	for k, v := range userResource.ObjectMeta.Annotations {
+	for k, v := range userResource.Annotations {
 		annotations[k] = v
 	}
 
@@ -172,5 +172,4 @@ func (r *S3UserReconciler) newSecretForCR(
 	}
 
 	return secret, nil
-
 }

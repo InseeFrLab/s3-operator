@@ -50,7 +50,7 @@ func (r *S3InstanceReconciler) Reconcile(
 			logger.Info(
 				fmt.Sprintf("The S3InstanceResource CR %s has been removed. NOOP", req.Name),
 				"NamespacedName",
-				req.NamespacedName.String(),
+				req.Namespace,
 			)
 			return ctrl.Result{}, nil
 		}
@@ -58,7 +58,7 @@ func (r *S3InstanceReconciler) Reconcile(
 			err,
 			"Failed to get S3InstanceResource",
 			"NamespacedName",
-			req.NamespacedName.String(),
+			req.Namespace,
 		)
 		return ctrl.Result{}, err
 	}
@@ -80,7 +80,7 @@ func (r *S3InstanceReconciler) Reconcile(
 				err,
 				"Failed to update s3InstanceResource status",
 				"NamespacedName",
-				req.NamespacedName.String(),
+				req.Namespace,
 			)
 			return ctrl.Result{}, err
 		}
@@ -95,7 +95,7 @@ func (r *S3InstanceReconciler) Reconcile(
 				err,
 				"Failed to re-fetch s3Instance",
 				"NamespacedName",
-				req.NamespacedName.String(),
+				req.Namespace,
 			)
 			return ctrl.Result{}, err
 		}
@@ -103,13 +103,13 @@ func (r *S3InstanceReconciler) Reconcile(
 
 	// Add finalizer for this CR
 	if !controllerutil.ContainsFinalizer(s3InstanceResource, s3InstanceFinalizer) {
-		logger.Info("Adding finalizer to s3Instance", "NamespacedName", req.NamespacedName.String())
+		logger.Info("Adding finalizer to s3Instance", "NamespacedName", req.Namespace)
 		if ok := controllerutil.AddFinalizer(s3InstanceResource, s3InstanceFinalizer); !ok {
 			logger.Error(
 				err,
 				"Failed to add finalizer into the s3Instance",
 				"NamespacedName",
-				req.NamespacedName.String(),
+				req.Namespace,
 			)
 			return ctrl.Result{Requeue: true}, nil
 		}
@@ -134,7 +134,7 @@ func (r *S3InstanceReconciler) Reconcile(
 				err,
 				"Failed to re-fetch s3Instance",
 				"NamespacedName",
-				req.NamespacedName.String(),
+				req.Namespace,
 			)
 			return ctrl.Result{}, err
 		}
@@ -150,7 +150,6 @@ func (r *S3InstanceReconciler) Reconcile(
 
 	// Reconciliation starts here
 	return r.handleReconciliation(ctx, req, s3InstanceResource)
-
 }
 
 func (r *S3InstanceReconciler) handleReconciliation(
@@ -161,7 +160,6 @@ func (r *S3InstanceReconciler) handleReconciliation(
 	logger := log.FromContext(ctx)
 
 	s3Client, err := r.S3Instancehelper.GetS3ClientFromS3Instance(ctx, r.Client, r.S3factory, s3InstanceResource)
-
 	if err != nil {
 		logger.Error(
 			err,
@@ -169,7 +167,7 @@ func (r *S3InstanceReconciler) handleReconciliation(
 			"s3InstanceSecretRefName",
 			s3InstanceResource.Spec.SecretRef,
 			"NamespacedName",
-			req.NamespacedName.String(),
+			req.Namespace,
 		)
 		return r.SetReconciledCondition(ctx, req, s3InstanceResource, s3v1alpha1.Unreachable,
 			"Failed to generate S3Instance ", err)
@@ -183,7 +181,7 @@ func (r *S3InstanceReconciler) handleReconciliation(
 			"s3InstanceName",
 			s3InstanceResource.Name,
 			"NamespacedName",
-			req.NamespacedName.String(),
+			req.Namespace,
 		)
 		return r.SetReconciledCondition(ctx, req, s3InstanceResource, s3v1alpha1.CreationFailure,
 			"Failed to generate S3Instance ", err)
@@ -197,5 +195,4 @@ func (r *S3InstanceReconciler) handleReconciliation(
 		"S3Instance instance reconciled",
 		nil,
 	)
-
 }

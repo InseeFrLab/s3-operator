@@ -19,12 +19,79 @@ package s3instance_controller
 import (
 	"context"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	s3v1alpha1 "github.com/InseeFrLab/s3-operator/api/v1alpha1"
 )
 
-func (r *S3InstanceReconciler) SetReconciledCondition(
+func (r *S3InstanceReconciler) SetProgressingCondition(
+	ctx context.Context,
+	req ctrl.Request,
+	s3InstanceResource *s3v1alpha1.S3Instance,
+	status metav1.ConditionStatus,
+	reason string,
+	message string,
+) (ctrl.Result, error) {
+	return r.ControllerHelper.SetReconciledCondition(
+		ctx,
+		r.Status(),
+		req,
+		s3InstanceResource,
+		&s3InstanceResource.Status.Conditions,
+		s3v1alpha1.ConditionProgressing,
+		status,
+		reason,
+		message,
+		nil,
+		r.ReconcilePeriod,
+	)
+}
+func (r *S3InstanceReconciler) SetAvailableCondition(
+	ctx context.Context,
+	req ctrl.Request,
+	s3InstanceResource *s3v1alpha1.S3Instance,
+	reason string,
+	message string,
+) (ctrl.Result, error) {
+	return r.ControllerHelper.SetReconciledCondition(
+		ctx,
+		r.Status(),
+		req,
+		s3InstanceResource,
+		&s3InstanceResource.Status.Conditions,
+		s3v1alpha1.ConditionAvailable,
+		metav1.ConditionTrue,
+		reason,
+		message,
+		nil,
+		r.ReconcilePeriod,
+	)
+}
+func (r *S3InstanceReconciler) SetDegradedCondition(
+	ctx context.Context,
+	req ctrl.Request,
+	s3InstanceResource *s3v1alpha1.S3Instance,
+	status metav1.ConditionStatus,
+	reason string,
+	message string,
+	err error,
+) (ctrl.Result, error) {
+	return r.ControllerHelper.SetReconciledCondition(
+		ctx,
+		r.Status(),
+		req,
+		s3InstanceResource,
+		&s3InstanceResource.Status.Conditions,
+		s3v1alpha1.ConditionDegraded,
+		status,
+		reason,
+		message,
+		err,
+		r.ReconcilePeriod,
+	)
+}
+func (r *S3InstanceReconciler) SetRejectedCondition(
 	ctx context.Context,
 	req ctrl.Request,
 	s3InstanceResource *s3v1alpha1.S3Instance,
@@ -38,7 +105,8 @@ func (r *S3InstanceReconciler) SetReconciledCondition(
 		req,
 		s3InstanceResource,
 		&s3InstanceResource.Status.Conditions,
-		s3v1alpha1.ConditionReconciled,
+		s3v1alpha1.ConditionRejected,
+		metav1.ConditionFalse,
 		reason,
 		message,
 		err,

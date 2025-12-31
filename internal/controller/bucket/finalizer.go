@@ -18,12 +18,13 @@ package bucket_controller
 
 import (
 	"context"
+	"fmt"
 
 	s3v1alpha1 "github.com/InseeFrLab/s3-operator/api/v1alpha1"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
@@ -32,36 +33,29 @@ func (r *BucketReconciler) handleDeletion(
 	req reconcile.Request,
 	bucketResource *s3v1alpha1.Bucket,
 ) (reconcile.Result, error) {
-	logger := log.FromContext(ctx)
 
 	if controllerutil.ContainsFinalizer(bucketResource, bucketFinalizer) {
 
-		if err := r.finalizeBucket(ctx, bucketResource); err != nil {
-			logger.Error(
-				err,
-				"An error occurred while attempting to finalize the bucket",
-				"bucketName",
-				bucketResource.Spec.Name,
-				"NamespacedName",
-				req.NamespacedName.String(),
-			)
-			return r.SetReconciledCondition(
+		if err := r.finalizeBucket(ctx, req, bucketResource); err != nil {
+			return r.SetDegradedCondition(
 				ctx,
 				req,
 				bucketResource,
+				metav1.ConditionFalse,
 				s3v1alpha1.DeletionFailure,
-				"Bucket deletion has failed",
+				fmt.Sprintf("Bucket %s deletion has failed", bucketResource.Spec.Name),
 				err,
 			)
 		}
 
 		if ok := controllerutil.RemoveFinalizer(bucketResource, bucketFinalizer); !ok {
-			logger.Info(
-				"Failed to remove finalizer for bucketResource",
-				"bucketName",
-				bucketResource.Spec.Name,
-				"NamespacedName",
-				req.NamespacedName.String(),
+			r.SetProgressingCondition(
+				ctx,
+				req,
+				bucketResource,
+				metav1.ConditionFalse,
+				s3v1alpha1.InternalError,
+				fmt.Sprintf("Failed to remove finalizer for bucket %s", bucketResource.Spec.Name),
 			)
 			return ctrl.Result{Requeue: true}, nil
 		}
@@ -72,14 +66,16 @@ func (r *BucketReconciler) handleDeletion(
 		// your changes to the latest version and try again" which would re-trigger the reconciliation
 		// if we try to update it again in the following operations
 		if err := r.Update(ctx, bucketResource); err != nil {
-			logger.Error(
+			r.SetDegradedCondition(
+				ctx,
+				req,
+				bucketResource,
+				metav1.ConditionFalse,
+				s3v1alpha1.K8sApiError,
+				fmt.Sprintf("An error occured when removing finalizer from bucket %s", bucketResource.Spec.Name),
 				err,
-				"Failed to remove finalizer for bucketResource",
-				"bucketName",
-				bucketResource.Spec.Name,
-				"NamespacedName",
-				req.NamespacedName.String(),
 			)
+
 			return ctrl.Result{}, err
 		}
 
@@ -89,9 +85,9 @@ func (r *BucketReconciler) handleDeletion(
 
 func (r *BucketReconciler) finalizeBucket(
 	ctx context.Context,
+	req reconcile.Request,
 	bucketResource *s3v1alpha1.Bucket,
 ) error {
-	logger := log.FromContext(ctx)
 
 	s3Client, err := r.S3Instancehelper.GetS3ClientForRessource(
 		ctx,
@@ -102,7 +98,15 @@ func (r *BucketReconciler) finalizeBucket(
 		bucketResource.Spec.S3InstanceRef,
 	)
 	if err != nil {
-		logger.Error(err, "an error occurred while getting s3Client")
+		r.SetDegradedCondition(
+			ctx,
+			req,
+			bucketResource,
+			metav1.ConditionUnknown,
+			s3v1alpha1.Unreachable,
+			"Failed to generate s3client from instance",
+			err,
+		)
 		return err
 	}
 	if s3Client.GetConfig().BucketDeletionEnabled {

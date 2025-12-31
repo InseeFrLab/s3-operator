@@ -18,12 +18,13 @@ package s3instance_controller
 
 import (
 	"context"
+	"strings"
 	"fmt"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	s3v1alpha1 "github.com/InseeFrLab/s3-operator/api/v1alpha1"
@@ -34,28 +35,40 @@ func (r *S3InstanceReconciler) handleS3InstanceDeletion(
 	req ctrl.Request,
 	s3InstanceResource *s3v1alpha1.S3Instance,
 ) (reconcile.Result, error) {
-	logger := log.FromContext(ctx)
 
 	if controllerutil.ContainsFinalizer(s3InstanceResource, s3InstanceFinalizer) {
-		logger.Info(
-			"Performing Finalizer Operations for S3Instance before delete CR",
-			"Namespace",
-			s3InstanceResource.GetNamespace(),
-			"Name",
-			s3InstanceResource.GetName(),
+		r.SetProgressingCondition(
+			ctx,
+			req,
+			s3InstanceResource,
+			metav1.ConditionTrue,
+			s3v1alpha1.Reconciling,
+			fmt.Sprintf("Performing Finalizer Operations for S3Instance %s before delete CR", s3InstanceResource.GetName()),
 		)
 
 		// Vérifier les références existantes
 		if err := r.checkS3InstanceReferences(ctx, s3InstanceResource); err != nil {
+			r.SetDegradedCondition(
+				ctx,
+				req,
+				s3InstanceResource,
+				metav1.ConditionFalse,
+				s3v1alpha1.DeletionBlocked,
+				fmt.Sprintf("S3Instance %s is still referenced by other resources", s3InstanceResource.Name),
+				err,
+			)
 			return ctrl.Result{}, err
 		}
 
 		//Remove s3InstanceFinalizer. Once all finalizers have been removed, the object will be deleted.
 		if ok := controllerutil.RemoveFinalizer(s3InstanceResource, s3InstanceFinalizer); !ok {
-			logger.Info(
-				"Failed to remove finalizer for S3Instance",
-				"NamespacedName",
-				req.NamespacedName.String(),
+			r.SetProgressingCondition(
+				ctx,
+				req,
+				s3InstanceResource,
+				metav1.ConditionFalse,
+				s3v1alpha1.InternalError,
+				fmt.Sprintf("Failed to remove finalizer for S3Instance %s", s3InstanceResource.Name),
 			)
 			return ctrl.Result{Requeue: true}, nil
 		}
@@ -66,11 +79,14 @@ func (r *S3InstanceReconciler) handleS3InstanceDeletion(
 		// your changes to the latest version and try again" which would re-trigger the reconciliation
 		// if we try to update it again in the following operations
 		if err := r.Update(ctx, s3InstanceResource); err != nil {
-			logger.Error(
+			r.SetDegradedCondition(
+				ctx,
+				req,
+				s3InstanceResource,
+				metav1.ConditionFalse,
+				s3v1alpha1.K8sApiError,
+				fmt.Sprintf("An error occured when removing finalizer from S3Instance %s", s3InstanceResource.Name),
 				err,
-				"Failed to remove finalizer for S3Instance",
-				"NamespacedName",
-				req.NamespacedName.String(),
 			)
 			return ctrl.Result{}, err
 		}
@@ -78,24 +94,27 @@ func (r *S3InstanceReconciler) handleS3InstanceDeletion(
 	return ctrl.Result{}, nil
 }
 
-// checkS3InstanceReferences vérifie si l'instance S3 est encore utilisée
+// checkS3InstanceReferences make sure the instance is not used anymore
 func (r *S3InstanceReconciler) checkS3InstanceReferences(ctx context.Context, s3Instance *s3v1alpha1.S3Instance) error {
-	// Liste des types de ressources à vérifier
+	// CR to be checked for existence
 	references := map[string]client.ObjectList{
 		"Buckets":  &s3v1alpha1.BucketList{},
 		"Policies": &s3v1alpha1.PolicyList{},
 		"Paths":    &s3v1alpha1.PathList{},
 		"S3Users":  &s3v1alpha1.S3UserList{},
 	}
-
+	var errors []string
 	for name, list := range references {
 		if err := r.List(ctx, list); err != nil {
-			return fmt.Errorf("échec de la récupération des %s : %w", name, err)
+			return fmt.Errorf("Failed to retrieve %s : %w", name, err)
 		}
 
 		if found := r.countReferences(list, s3Instance); found > 0 {
-			return fmt.Errorf("impossible de supprimer S3Instance, %d %s utilisent cette instance", found, name)
+			errors = append(errors, fmt.Sprintf("Cannot delete s3Instance as %d %s are used on this instance", found, name))
 		}
+	}
+	if len(errors) >0 {
+		return fmt.Errorf(strings.Join(errors, "\n"))
 	}
 	return nil
 }

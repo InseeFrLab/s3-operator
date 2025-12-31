@@ -70,8 +70,9 @@ func TestSetReconciledCondition(t *testing.T) {
 			ctrl.Request{NamespacedName: types.NamespacedName{Name: s3instanceResource.Name, Namespace: s3instanceResource.Namespace}},
 			s3instanceResource,
 			&s3instanceResource.Status.Conditions,
+			s3v1alpha1.ConditionAvailable,
+			metav1.ConditionTrue,
 			s3v1alpha1.Reconciled,
-			"s3Instance reconciled",
 			"s3Instance reconciled",
 			nil, time.Duration(10),
 		)
@@ -85,7 +86,10 @@ func TestSetReconciledCondition(t *testing.T) {
 			Name:      "default",
 		}, s3instanceResourceUpdated)
 		assert.NoError(t, err)
-		assert.Equal(t, s3v1alpha1.Reconciled, s3instanceResourceUpdated.Status.Conditions[0].Type)
+		var conditions = s3instanceResourceUpdated.Status.Conditions
+		var lastCondition = conditions[len(conditions) - 1]
+		assert.Equal(t, s3v1alpha1.ConditionAvailable, lastCondition.Type)
+		assert.Equal(t, s3v1alpha1.Reconciled, lastCondition.Reason)
 		assert.Equal(t, "s3Instance reconciled", s3instanceResourceUpdated.Status.Conditions[0].Message)
 	})
 
@@ -96,8 +100,9 @@ func TestSetReconciledCondition(t *testing.T) {
 			ctrl.Request{NamespacedName: types.NamespacedName{Name: s3instanceResource.Name, Namespace: s3instanceResource.Namespace}},
 			s3instanceResource,
 			&s3instanceResource.Status.Conditions,
+			s3v1alpha1.ConditionDegraded,
+			metav1.ConditionFalse,
 			s3v1alpha1.CreationFailure,
-			"s3Instance reconciled",
 			"s3Instance reconciled",
 			fmt.Errorf("Something wrong have happened"), time.Duration(10),
 		)
@@ -113,7 +118,10 @@ func TestSetReconciledCondition(t *testing.T) {
 			Name:      "default",
 		}, s3instanceResourceUpdated)
 		assert.NoError(t, err)
-		assert.Equal(t, s3v1alpha1.CreationFailure, s3instanceResourceUpdated.Status.Conditions[1].Type)
+		var conditions = s3instanceResourceUpdated.Status.Conditions
+		var lastCondition = conditions[len(conditions) - 1]
+		assert.Equal(t, s3v1alpha1.ConditionDegraded, lastCondition.Type)
+		assert.Equal(t, s3v1alpha1.CreationFailure, lastCondition.Reason)
 		assert.Contains(t, s3instanceResourceUpdated.Status.Conditions[1].Message, "Something wrong have happened")
 	})
 }

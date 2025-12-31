@@ -23,7 +23,6 @@ import (
 	"fmt"
 
 	k8sapierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -63,25 +62,13 @@ func (r *PolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 
 	// Let's just set the status as Unknown when no status are available
 	if len(policyResource.Status.Conditions) == 0 {
-		meta.SetStatusCondition(
-			&policyResource.Status.Conditions,
-			metav1.Condition{
-				Type:               s3v1alpha1.ConditionReconciled,
-				Status:             metav1.ConditionUnknown,
-				ObservedGeneration: policyResource.Generation,
-				Reason:             s3v1alpha1.Reconciling,
-				Message:            "Starting reconciliation",
-			},
-		)
-		if err = r.Status().Update(ctx, policyResource); err != nil {
-			logger.Error(
-				err,
-				"Failed to update bucketRessource status",
-				"bucketName",
-				policyResource.Spec.Name,
-				"NamespacedName",
-				req.NamespacedName.String(),
-			)
+		_, err = r.SetProgressingCondition(ctx,
+						   req,
+						   policyResource,
+						   metav1.ConditionUnknown,
+						   s3v1alpha1.Reconciling,
+						   fmt.Sprintf("Newly discovered resource %s", policyResource.Name))
+		if err != nil {
 			return ctrl.Result{}, err
 		}
 
@@ -91,61 +78,60 @@ func (r *PolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		// your changes to the latest version and try again" which would re-trigger the reconciliation
 		// if we try to update it again in the following operations
 		if err := r.Get(ctx, req.NamespacedName, policyResource); err != nil {
-			logger.Error(
-				err,
-				"Failed to re-fetch policyResource",
-				"policyName",
-				policyResource.Spec.Name,
-				"NamespacedName",
-				req.NamespacedName.String(),
-			)
+
+			r.SetDegradedCondition(ctx,
+					       req,
+					       policyResource,
+					       metav1.ConditionFalse,
+					       s3v1alpha1.K8sApiError,
+					       fmt.Sprintf("Failed to re-fetch policy resource %s", policyResource.Name),
+					       err)
 			return ctrl.Result{}, err
 		}
 	}
 
 	// Add finalizer for this CR
 	if !controllerutil.ContainsFinalizer(policyResource, policyFinalizer) {
-		logger.Info("Adding finalizer to policy resource", "PolicyName",
-			policyResource.Spec.Name, "NamespacedName", req.NamespacedName.String())
+		r.SetProgressingCondition(ctx,
+					  req,
+					  policyResource,
+					  metav1.ConditionTrue,
+					  s3v1alpha1.Reconciling,
+					  fmt.Sprintf("Adding finalizer to policy resource %s", policyResource.Name))
 		if ok := controllerutil.AddFinalizer(policyResource, policyFinalizer); !ok {
-			logger.Error(
-				err,
-				"Failed to add finalizer into policy resource",
-				"policyName",
-				policyResource.Spec.Name,
-				"NamespacedName",
-				req.NamespacedName.String(),
-			)
+			r.SetDegradedCondition(ctx,
+					       req,
+					       policyResource,
+					       metav1.ConditionFalse,
+					       s3v1alpha1.InternalError,
+					       fmt.Sprintf("Failed to add finalizer to policy resource %s", policyResource.Name),
+					       err)
 			return ctrl.Result{Requeue: true}, nil
 		}
 
-		err = r.Update(ctx, policyResource)
-		if err != nil {
-			logger.Error(
-				err,
-				"An error occurred when adding finalizer from policyResource",
-				"policyResource",
-				policyResource.Spec.Name,
-				"NamespacedName",
-				req.NamespacedName.String(),
-			)
+		if err := r.Update(ctx, policyResource); err != nil {
+			r.SetDegradedCondition(ctx,
+					       req,
+					       policyResource,
+					       metav1.ConditionFalse,
+					       s3v1alpha1.K8sApiError,
+					       fmt.Sprintf("An error occurred when adding finalizer on policy resource %s", policyResource.Name),
+					       err)
 			return ctrl.Result{}, err
 		}
-
 		// Let's re-fetch the policy Custom Resource after adding the finalizer
 		// so that we have the latest state of the resource on the cluster and we will avoid
 		// raise the issue "the object has been modified, please apply
 		// your changes to the latest version and try again" which would re-trigger the reconciliation
 		// if we try to update it again in the following operations
 		if err := r.Get(ctx, req.NamespacedName, policyResource); err != nil {
-			logger.Error(
-				err,
-				"Failed to re-fetch policyResource",
-				"policyName",
-				policyResource.Spec.Name,
-				"NamespacedName",
-				req.NamespacedName.String(),
-			)
+			r.SetDegradedCondition(ctx,
+					       req,
+					       policyResource,
+					       metav1.ConditionFalse,
+					       s3v1alpha1.K8sApiError,
+					       fmt.Sprintf("Failed to re-fetch policy resource %s", policyResource.Name),
+					       err)
 			return ctrl.Result{}, err
 		}
 	}
@@ -153,16 +139,18 @@ func (r *PolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	// Managing policy deletion with a finalizer
 	// REF : https://sdk.operatorframework.io/docs/building-operators/golang/advanced-topics/#external-resources
 	if policyResource.GetDeletionTimestamp() != nil {
-		logger.Info("policyResource have been marked for deletion", "policyName",
-			policyResource.Spec.Name,
-			"NamespacedName",
-			req.NamespacedName.String())
+		r.SetProgressingCondition(ctx,
+					  req,
+					  policyResource,
+					  metav1.ConditionTrue,
+					  s3v1alpha1.Reconciling,
+					  fmt.Sprintf("policy resource have been marked for deletion %s", policyResource.Name))
 		return r.handleDeletion(ctx, req, policyResource)
 	}
 
 	// Policy lifecycle management (other than deletion) starts here
+	r.SetProgressingCondition(ctx, req, policyResource, metav1.ConditionTrue, s3v1alpha1.Reconciling, fmt.Sprintf("Starting reconciliation of policy %s", policyResource.Name))
 	return r.handleReconciliation(ctx, req, policyResource)
-
 }
 
 func (r *PolicyReconciler) handleReconciliation(
@@ -170,8 +158,9 @@ func (r *PolicyReconciler) handleReconciliation(
 	req reconcile.Request,
 	policyResource *s3v1alpha1.Policy,
 ) (reconcile.Result, error) {
-	logger := log.FromContext(ctx)
 
+
+	// Create S3Client
 	s3Client, err := r.S3Instancehelper.GetS3ClientForRessource(
 		ctx,
 		r.Client,
@@ -181,34 +170,27 @@ func (r *PolicyReconciler) handleReconciliation(
 		policyResource.Spec.S3InstanceRef,
 	)
 	if err != nil {
-		logger.Error(err, "an error occurred while getting s3Client")
-		return r.SetReconciledCondition(
+		return r.SetDegradedCondition(
 			ctx,
 			req,
 			policyResource,
+			metav1.ConditionUnknown,
 			s3v1alpha1.Unreachable,
 			"Failed to generate s3client from instance",
 			err,
 		)
 	}
 
-	// Check policy existence on the S3 server
+	// check policy existence on the s3 server
 	effectivePolicy, err := s3Client.GetPolicyInfo(policyResource.Spec.Name)
 	if err != nil {
-		logger.Error(
-			err,
-			"An error occurred while checking the existence of a policy",
-			"policyName",
-			policyResource.Spec.Name,
-			"NamespacedName",
-			req.NamespacedName.String(),
-		)
-		return r.SetReconciledCondition(
+		return r.SetDegradedCondition(
 			ctx,
 			req,
 			policyResource,
+			metav1.ConditionUnknown,
 			s3v1alpha1.Unreachable,
-			"Error while checking if policy already exist",
+			fmt.Sprintf("Error while checking if policy %s already exist", policyResource.Spec.Name),
 			err,
 		)
 	}
@@ -226,7 +208,6 @@ func (r *PolicyReconciler) handleUpdate(
 	req reconcile.Request,
 	policyResource *s3v1alpha1.Policy,
 ) (reconcile.Result, error) {
-	logger := log.FromContext(ctx)
 
 	s3Client, err := r.S3Instancehelper.GetS3ClientForRessource(
 		ctx,
@@ -238,11 +219,11 @@ func (r *PolicyReconciler) handleUpdate(
 	)
 
 	if err != nil {
-		logger.Error(err, "an error occurred while getting s3Client")
-		return r.SetReconciledCondition(
+		return r.SetDegradedCondition(
 			ctx,
 			req,
 			policyResource,
+			metav1.ConditionUnknown,
 			s3v1alpha1.Unreachable,
 			"Failed to generate s3client from instance",
 			err,
@@ -252,42 +233,29 @@ func (r *PolicyReconciler) handleUpdate(
 	// Check policy existence on the S3 server
 	effectivePolicy, err := s3Client.GetPolicyInfo(policyResource.Spec.Name)
 	if err != nil {
-		logger.Error(
-			err,
-			"An error occurred while checking the existence of a policy",
-			"policyName",
-			policyResource.Spec.Name,
-			"NamespacedName",
-			req.NamespacedName.String(),
-		)
-		return r.SetReconciledCondition(
+		return r.SetDegradedCondition(
 			ctx,
 			req,
 			policyResource,
+			metav1.ConditionUnknown,
 			s3v1alpha1.Unreachable,
-			"Error while checking if policy already exist",
+			fmt.Sprintf("Error while checking if policy %s already exist", policyResource.Spec.Name),
 			err,
 		)
 	}
 
 	matching, err := r.isPolicyMatchingWithCustomResource(policyResource, effectivePolicy)
 	if err != nil {
-		logger.Error(
-			err,
-			"An error occurred while comparing actual and expected configuration for the policy",
-			"policyName",
-			policyResource.Spec.Name,
-			"NamespacedName",
-			req.NamespacedName.String(),
-		)
-		return r.SetReconciledCondition(
+		return r.SetDegradedCondition(
 			ctx,
 			req,
 			policyResource,
+			metav1.ConditionFalse,
 			s3v1alpha1.Unreachable,
 			fmt.Sprintf(
-				"The comparison between the effective policy [%s] on S3 and its corresponding custom resource on K8S has failed",
+				"The comparison between the effective policy [%s] on S3 and its corresponding custom resource %s on K8S has failed",
 				policyResource.Spec.Name,
+				policyResource.Name,
 			),
 			err,
 		)
@@ -300,41 +268,33 @@ func (r *PolicyReconciler) handleUpdate(
 			policyResource.Spec.PolicyContent,
 		)
 		if err != nil {
-			logger.Error(
-				err,
-				"An error occurred while updating the policy",
-				"policyName",
-				policyResource.Spec.Name,
-				"NamespacedName",
-				req.NamespacedName.String(),
-			)
-			r.SetReconciledCondition(
+			r.SetDegradedCondition(
 				ctx,
 				req,
 				policyResource,
+				metav1.ConditionFalse,
 				s3v1alpha1.Unreachable,
 				fmt.Sprintf(
-					"The comparison between the effective policy [%s] on S3 and its corresponding custom resource on K8S has failed",
+					"The comparison between the effective policy [%s] on S3 and its corresponding custom resource %s on K8S has failed",
 					policyResource.Spec.Name,
+					policyResource.Name,
 				),
 				err,
 			)
 		}
 	}
 
-	return r.SetReconciledCondition(
+	return r.SetAvailableCondition(
 		ctx,
 		req,
 		policyResource,
 		s3v1alpha1.Reconciled,
 		"Policy reconciled",
-		nil,
 	)
 }
 
 func (r *PolicyReconciler) handleCreation(ctx context.Context, req reconcile.Request,
 	policyResource *s3v1alpha1.Policy) (reconcile.Result, error) {
-	logger := log.FromContext(ctx)
 
 	s3Client, err := r.S3Instancehelper.GetS3ClientForRessource(
 		ctx,
@@ -346,8 +306,7 @@ func (r *PolicyReconciler) handleCreation(ctx context.Context, req reconcile.Req
 	)
 
 	if err != nil {
-		logger.Error(err, "An error occurred while getting s3Client")
-		return r.SetReconciledCondition(
+		return r.SetRejectedCondition(
 			ctx,
 			req,
 			policyResource,
@@ -363,15 +322,8 @@ func (r *PolicyReconciler) handleCreation(ctx context.Context, req reconcile.Req
 	)
 
 	if err != nil {
-		logger.Error(
-			err,
-			"An error occurred while creating the policy",
-			"policyName",
-			policyResource.Spec.Name,
-			"NamespacedName",
-			req.NamespacedName.String(),
-		)
-		return r.SetReconciledCondition(
+
+		return r.SetRejectedCondition(
 			ctx,
 			req,
 			policyResource,
@@ -381,13 +333,12 @@ func (r *PolicyReconciler) handleCreation(ctx context.Context, req reconcile.Req
 		)
 	}
 
-	return r.SetReconciledCondition(
+	return r.SetAvailableCondition(
 		ctx,
 		req,
 		policyResource,
 		s3v1alpha1.Reconciled,
 		"Policy reconciled",
-		err,
 	)
 }
 

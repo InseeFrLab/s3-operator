@@ -134,8 +134,10 @@ func TestHandleCreate(t *testing.T) {
 			Namespace: "s3-operator",
 			Name:      "default",
 		}, reconciledInstance)
-
-		assert.Equal(t, "Reconciled", reconciledInstance.Status.Conditions[0].Reason)
+		// Conditions[0] = Progressing ; Conditions[1] = Reconciled
+		var conditions = reconciledInstance.Status.Conditions
+		var lastCondition = conditions[len(conditions) - 1]
+		assert.Equal(t, s3v1alpha1.Reconciled, lastCondition.Reason)
 	})
 
 	t.Run("reason is creation failure because of invalid client", func(t *testing.T) {
@@ -150,7 +152,9 @@ func TestHandleCreate(t *testing.T) {
 			Namespace: "s3-operator",
 			Name:      "invalid-instance",
 		}, reconciledInstance)
-
-		assert.Equal(t, "CreationFailure", reconciledInstance.Status.Conditions[0].Reason)
+		// Conditions[0] = Progressing ; Conditions[1] = CreationFailure
+		var conditions = reconciledInstance.Status.Conditions
+		var lastCondition = conditions[len(conditions) - 1]
+		assert.Equal(t, s3v1alpha1.CreationFailure, lastCondition.Reason)
 	})
 }

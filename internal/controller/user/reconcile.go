@@ -20,11 +20,11 @@ import (
 	"cmp"
 	"context"
 	"fmt"
+	"strings"
 	"slices"
 
 	corev1 "k8s.io/api/core/v1"
 	k8sapierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -62,25 +62,13 @@ func (r *S3UserReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 
 	// Let's just set the status as Unknown when no status are available
 	if len(userResource.Status.Conditions) == 0 {
-		meta.SetStatusCondition(
-			&userResource.Status.Conditions,
-			metav1.Condition{
-				Type:               s3v1alpha1.ConditionReconciled,
-				Status:             metav1.ConditionUnknown,
-				ObservedGeneration: userResource.Generation,
-				Reason:             s3v1alpha1.Reconciling,
-				Message:            "Starting reconciliation",
-			},
-		)
-		if err = r.Status().Update(ctx, userResource); err != nil {
-			logger.Error(
-				err,
-				"Failed to update userRessource status",
-				"userResourceName",
-				userResource.Name,
-				"NamespacedName",
-				req.NamespacedName.String(),
-			)
+		_, err = r.SetProgressingCondition(ctx,
+						   req,
+						   userResource,
+						   metav1.ConditionUnknown,
+						   s3v1alpha1.Reconciling,
+						   fmt.Sprintf("Newly discovered resource %s", userResource.Name))
+		if err != nil {
 			return ctrl.Result{}, err
 		}
 
@@ -90,47 +78,45 @@ func (r *S3UserReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		// your changes to the latest version and try again" which would re-trigger the reconciliation
 		// if we try to update it again in the following operations
 		if err := r.Get(ctx, req.NamespacedName, userResource); err != nil {
-			logger.Error(
-				err,
-				"Failed to re-fetch userResource",
-				"userResourceName",
-				userResource.Name,
-				"NamespacedName",
-				req.NamespacedName.String(),
-			)
+			r.SetDegradedCondition(ctx,
+					       req,
+					       userResource,
+					       metav1.ConditionFalse,
+					       s3v1alpha1.K8sApiError,
+					       fmt.Sprintf("Failed to re-fetch user resource %s", userResource.Name),
+					       err)
 			return ctrl.Result{}, err
 		}
 	}
 
 	// Add finalizer for this CR
 	if !controllerutil.ContainsFinalizer(userResource, userFinalizer) {
-		logger.Info("Adding finalizer to user resource",
-			"userResourceName",
-			userResource.Name,
-			"NamespacedName",
-			req.NamespacedName.String())
+		r.SetProgressingCondition(ctx,
+					  req,
+					  userResource,
+					  metav1.ConditionTrue,
+					  s3v1alpha1.Reconciling,
+					  fmt.Sprintf("Adding finalizer to user resource %s", userResource.Name))
 
 		if ok := controllerutil.AddFinalizer(userResource, userFinalizer); !ok {
-			logger.Error(
-				err,
-				"Failed to add finalizer into user resource",
-				"userResourceName",
-				userResource.Name,
-				"NamespacedName",
-				req.NamespacedName.String(),
-			)
+			r.SetDegradedCondition(ctx,
+					       req,
+					       userResource,
+					       metav1.ConditionFalse,
+					       s3v1alpha1.InternalError,
+					       fmt.Sprintf("Failed to add finalizer to user resource %s", userResource.Name),
+					       err)
 			return ctrl.Result{Requeue: true}, nil
 		}
 
 		if err = r.Update(ctx, userResource); err != nil {
-			logger.Error(
-				err,
-				"An error occurred when adding finalizer from user",
-				"userResourceName",
-				userResource.Name,
-				"NamespacedName",
-				req.NamespacedName.String(),
-			)
+			r.SetDegradedCondition(ctx,
+					       req,
+					       userResource,
+					       metav1.ConditionFalse,
+					       s3v1alpha1.K8sApiError,
+					       fmt.Sprintf("An error occurred when adding finalizer on user resource %s", userResource.Name),
+					       err)
 			return ctrl.Result{}, err
 		}
 
@@ -140,14 +126,13 @@ func (r *S3UserReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		// your changes to the latest version and try again" which would re-trigger the reconciliation
 		// if we try to update it again in the following operations
 		if err := r.Get(ctx, req.NamespacedName, userResource); err != nil {
-			logger.Error(
-				err,
-				"Failed to re-fetch userResource",
-				"userResourceName",
-				userResource.Name,
-				"NamespacedName",
-				req.NamespacedName.String(),
-			)
+			r.SetDegradedCondition(ctx,
+					       req,
+					       userResource,
+					       metav1.ConditionFalse,
+					       s3v1alpha1.K8sApiError,
+					       fmt.Sprintf("Failed to re-fetch user resource %s", userResource.Name),
+					       err)
 			return ctrl.Result{}, err
 		}
 	}
@@ -155,14 +140,16 @@ func (r *S3UserReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	// Check if the userResource instance is marked to be deleted, which is
 	// indicated by the deletion timestamp being set. The object will be deleted.
 	if userResource.GetDeletionTimestamp() != nil {
-		logger.Info("userResource have been marked for deletion",
-			"userResource",
-			userResource.Name,
-			"NamespacedName",
-			req.NamespacedName.String())
+		r.SetProgressingCondition(ctx,
+					  req,
+					  userResource,
+					  metav1.ConditionTrue,
+					  s3v1alpha1.Reconciling,
+					  fmt.Sprintf("User resource have been marked for deletion %s", userResource.Name))
 		return r.handleDeletion(ctx, req, userResource)
 	}
 
+	r.SetProgressingCondition(ctx, req, userResource, metav1.ConditionTrue, s3v1alpha1.Reconciling, fmt.Sprintf("Starting reconciliation of user %s", userResource.Name))
 	return r.handleReconciliation(ctx, req, userResource)
 
 }
@@ -172,7 +159,6 @@ func (r *S3UserReconciler) handleReconciliation(
 	req reconcile.Request,
 	userResource *s3v1alpha1.S3User,
 ) (reconcile.Result, error) {
-	logger := log.FromContext(ctx)
 
 	s3Client, err := r.S3Instancehelper.GetS3ClientForRessource(
 		ctx,
@@ -183,11 +169,11 @@ func (r *S3UserReconciler) handleReconciliation(
 		userResource.Spec.S3InstanceRef,
 	)
 	if err != nil {
-		logger.Error(err, "An error occurred while getting s3Client")
-		return r.SetReconciledCondition(
+		return r.SetDegradedCondition(
 			ctx,
 			req,
 			userResource,
+			metav1.ConditionUnknown,
 			s3v1alpha1.Unreachable,
 			"Failed to generate s3client from instance",
 			err,
@@ -196,20 +182,13 @@ func (r *S3UserReconciler) handleReconciliation(
 
 	found, err := s3Client.UserExist(userResource.Spec.AccessKey)
 	if err != nil {
-		logger.Error(
-			err,
-			"An error occurred while checking the existence of a user",
-			"userResource",
-			userResource.Name,
-			"NamespacedName",
-			req.NamespacedName.String(),
-		)
-		return r.SetReconciledCondition(
+		return r.SetDegradedCondition(
 			ctx,
 			req,
 			userResource,
+			metav1.ConditionUnknown,
 			s3v1alpha1.Unreachable,
-			"Fail to check existence",
+			fmt.Sprintf("Error while checking if user %s already exist", userResource.Name),
 			err,
 		)
 	}
@@ -225,7 +204,6 @@ func (r *S3UserReconciler) handleUpdate(
 	req reconcile.Request,
 	userResource *s3v1alpha1.S3User,
 ) (reconcile.Result, error) {
-	logger := log.FromContext(ctx)
 
 	// Create S3Client
 	s3Client, err := r.S3Instancehelper.GetS3ClientForRessource(
@@ -237,11 +215,11 @@ func (r *S3UserReconciler) handleUpdate(
 		userResource.Spec.S3InstanceRef,
 	)
 	if err != nil {
-		logger.Error(err, "An error occurred while getting s3Client")
-		return r.SetReconciledCondition(
+		return r.SetDegradedCondition(
 			ctx,
 			req,
 			userResource,
+			metav1.ConditionUnknown,
 			s3v1alpha1.Unreachable,
 			"Failed to generate s3client from instance",
 			err,
@@ -250,65 +228,32 @@ func (r *S3UserReconciler) handleUpdate(
 	ownedSecret := true
 	userOwnedlinkedSecrets, userUnlinkedSecret, err := r.getUserLinkedSecrets(ctx, userResource)
 	if err != nil {
-		logger.Error(
-			err,
-			"An error occurred while listing the user's secret",
-			"userResourceName",
-			userResource.Name,
-			"NamespacedName",
-			req.NamespacedName.String(),
-		)
-		return r.SetReconciledCondition(
+		return r.SetDegradedCondition(
 			ctx,
 			req,
 			userResource,
+			metav1.ConditionUnknown,
 			s3v1alpha1.Unreachable,
-			"Impossible to list the user's secret",
-			err,
-		)
-	}
-	if err != nil {
-		logger.Error(
-			err,
-			"An error occurred while listing the user's secret",
-			"userResourceName",
-			userResource.Name,
-			"NamespacedName",
-			req.NamespacedName.String(),
-		)
-		return r.SetReconciledCondition(
-			ctx,
-			req,
-			userResource,
-			s3v1alpha1.Unreachable,
-			"Impossible to list the user's secret",
+			fmt.Sprintf("Impossible to list the secrets of user %s", userResource.Name),
 			err,
 		)
 	}
 	currentUserSecret := corev1.Secret{}
 	if len(userOwnedlinkedSecrets) == 0 && userUnlinkedSecret == nil {
-		logger.Info(
-			"No Secret associated to user found, user will be deleted from the S3 backend, then recreated with a secret",
-			"userResourceSpecSecretName",
-			userResource.Spec.SecretName,
-			"userResourceName",
-			userResource.Name,
-			"NamespacedName",
-			req.NamespacedName.String(),
-		)
+		r.SetProgressingCondition(ctx,
+					  req,
+					  userResource,
+					  metav1.ConditionTrue,
+					  s3v1alpha1.Reconciling,
+					  fmt.Sprintf("No Secret associated to user %s found, user will be deleted from the S3 backend, then recreated with a secret", userResource.Name))
 
 		err = s3Client.DeleteUser(userResource.Spec.AccessKey)
 		if err != nil {
-			logger.Error(err, "Could not delete user on S3 server", "userResource",
-				userResource.Name,
-				"userResourceName",
-				userResource.Name,
-				"NamespacedName",
-				req.NamespacedName.String())
-			return r.SetReconciledCondition(
+			return r.SetDegradedCondition(
 				ctx,
 				req,
 				userResource,
+				metav1.ConditionFalse,
 				s3v1alpha1.Unreachable,
 				fmt.Sprintf(
 					"Deletion of S3user %s on S3 server has failed",
@@ -326,13 +271,13 @@ func (r *S3UserReconciler) handleUpdate(
 		for _, linkedsecret := range userOwnedlinkedSecrets {
 			if linkedsecret.Name != cmp.Or(userResource.Spec.SecretName, userResource.Name) {
 				if err := r.deleteSecret(ctx, &linkedsecret); err != nil {
-					logger.Info("Failed to delete unused secret", "secretName", linkedsecret.Name)
-					return r.SetReconciledCondition(
+					return r.SetDegradedCondition(
 						ctx,
 						req,
 						userResource,
+						metav1.ConditionFalse,
 						s3v1alpha1.Unreachable,
-						"Failed to delete old linkedSecret",
+						fmt.Sprintf("Failed to delete old linkedSecret %s for user %s", linkedsecret.Name, userResource.Name),
 						err,
 					)
 				}
@@ -342,26 +287,21 @@ func (r *S3UserReconciler) handleUpdate(
 			}
 		}
 		if !foundSecret {
-			logger.Info(
-				"No Secret associated to user found, user will be deleted from the S3 backend, then recreated with a secret",
-				"userResourceName",
-				userResource.Name,
-				"NamespacedName",
-				req.NamespacedName.String(),
-			)
+			r.SetProgressingCondition(ctx,
+					  req,
+					  userResource,
+					  metav1.ConditionTrue,
+					  s3v1alpha1.Reconciling,
+					  "No Secret associated to user found, user will be deleted from the S3 backend, then recreated with a secret")
+
 
 			err = s3Client.DeleteUser(userResource.Spec.AccessKey)
 			if err != nil {
-				logger.Error(err, "Could not delete user on S3 server", "userResource",
-					userResource.Name,
-					"userResourceName",
-					userResource.Name,
-					"NamespacedName",
-					req.NamespacedName.String())
-				return r.SetReconciledCondition(
+				return r.SetDegradedCondition(
 					ctx,
 					req,
 					userResource,
+					metav1.ConditionFalse,
 					s3v1alpha1.Unreachable,
 					fmt.Sprintf(
 						"Deletion of S3user %s on S3 server has failed",
@@ -373,23 +313,23 @@ func (r *S3UserReconciler) handleUpdate(
 			return r.handleCreate(ctx, req, userResource)
 		}
 	}
+	r.SetProgressingCondition(ctx,
+			  req,
+			  userResource,
+			  metav1.ConditionTrue,
+			  s3v1alpha1.Reconciling,
+			  fmt.Sprintf("Checking user %s policies", userResource.Name))
 
-	logger.Info("Checking user policies", "userResource",
-		userResource.Name,
-		"NamespacedName",
-		req.NamespacedName.String())
+
 	userPolicies, err := s3Client.GetUserPolicies(userResource.Spec.AccessKey)
 	if err != nil {
-		logger.Error(err, "Could not check the user's policies", "userResource",
-			userResource.Name,
-			"NamespacedName",
-			req.NamespacedName.String())
-		return r.SetReconciledCondition(
+		return r.SetDegradedCondition(
 			ctx,
 			req,
 			userResource,
+			metav1.ConditionUnknown,
 			s3v1alpha1.Unreachable,
-			"Checking the S3user policies has failed",
+			fmt.Sprintf("Checking the S3user policies has failed for user %s", userResource.Name),
 			err,
 		)
 	}
@@ -399,13 +339,6 @@ func (r *S3UserReconciler) handleUpdate(
 	for _, policy := range userPolicies {
 		policyFound := slices.Contains(userResource.Spec.Policies, policy)
 		if !policyFound {
-			logger.Info(
-				fmt.Sprintf("S3User has unexpected policy not in definition: %s", policy),
-				"userResource",
-				userResource.Name,
-				"NamespacedName",
-				req.NamespacedName.String(),
-			)
 			policyToDelete = append(policyToDelete, policy)
 		}
 	}
@@ -413,60 +346,55 @@ func (r *S3UserReconciler) handleUpdate(
 	for _, policy := range userResource.Spec.Policies {
 		policyFound := slices.Contains(userPolicies, policy)
 		if !policyFound {
-			logger.Info(
-				fmt.Sprintf("S3User is missing policy from definition: %s", policy),
-				"userResource",
-				userResource.Name,
-				"NamespacedName",
-				req.NamespacedName.String(),
-			)
 			policyToAdd = append(policyToAdd, policy)
 		}
 	}
 
-	if len(policyToDelete) > 0 {
-		err = s3Client.RemovePoliciesFromUser(userResource.Spec.AccessKey, policyToDelete)
-		if err != nil {
-			logger.Error(
-				err,
-				"An error occurred while removing policy to user",
-				"userResource",
-				userResource.Name,
-				"NamespacedName",
-				req.NamespacedName.String(),
-			)
-			return r.SetReconciledCondition(
-				ctx,
-				req,
-				userResource,
-				s3v1alpha1.Unreachable,
-				"Error while updating policies of user",
-				err,
-			)
+	if len(policyToDelete) > 0 || len(policyToAdd) > 0 {
+		var message string = ""
+		if len(policyToDelete) > 0 {
+			message = fmt.Sprintf("S3User %s has unexpected policy not in definition: %s", userResource.Name, strings.Join(policyToDelete, ", "))
 		}
-	}
+		if len(policyToAdd) > 0 {
+			message += fmt.Sprintf("S3User %s is missing policy from definition: %s", userResource.Name, strings.Join(policyToAdd, ", "))
+		}
+		// Update the condition (+ prints a log) before doing anything
+		r.SetProgressingCondition(ctx,
+			  req,
+			  userResource,
+			  metav1.ConditionTrue,
+			  s3v1alpha1.Reconciling,
+			  message)
 
-	if len(policyToAdd) > 0 {
-		err := s3Client.AddPoliciesToUser(userResource.Spec.AccessKey, policyToAdd)
-		if err != nil {
-			logger.Error(
-				err,
-				"An error occurred while adding policy to user",
-				"userResource",
-				userResource.Name,
-				"NamespacedName",
-				req.NamespacedName.String(),
-			)
+		if len(policyToDelete) > 0 {
+			err = s3Client.RemovePoliciesFromUser(userResource.Spec.AccessKey, policyToDelete)
+			if err != nil {
+				return r.SetDegradedCondition(
+					ctx,
+					req,
+					userResource,
+					metav1.ConditionFalse,
+					s3v1alpha1.Unreachable,
+					fmt.Sprintf("Error while removing policies of user %s", userResource.Name),
+					err,
+				)
+			}
+		}
 
-			return r.SetReconciledCondition(
-				ctx,
-				req,
-				userResource,
-				s3v1alpha1.Unreachable,
-				"Error while updating policies of user",
-				err,
-			)
+		if len(policyToAdd) > 0 {
+			err := s3Client.AddPoliciesToUser(userResource.Spec.AccessKey, policyToAdd)
+			if err != nil {
+				return r.SetDegradedCondition(
+					ctx,
+					req,
+					userResource,
+					metav1.ConditionFalse,
+					s3v1alpha1.Unreachable,
+					fmt.Sprintf("Error while adding policies of user %s", userResource.Name),
+					err,
+				)
 
+			}
 		}
 	}
 
@@ -477,73 +405,56 @@ func (r *S3UserReconciler) handleUpdate(
 	)
 
 	if err != nil {
-		logger.Error(
-			err,
-			"An error occurred when checking if user credentials were valid",
-			"userResource",
-			userResource.Name,
-			"NamespacedName",
-			req.NamespacedName.String(),
-		)
-		return r.SetReconciledCondition(
+		return r.SetDegradedCondition(
 			ctx,
 			req,
 			userResource,
+			metav1.ConditionFalse,
 			s3v1alpha1.Unreachable,
-			"Checking credentials on S3 server has failed",
+			fmt.Sprintf("Checking credentials on S3 server has failed for user %s", userResource.Name),
 			err,
 		)
 	}
 
 	if !credentialsValid {
 		if ownedSecret {
-			logger.Info(
-				"The secret containing the credentials will be deleted, and the user will be deleted from the S3 backend, then recreated (through another reconcile)",
-				"userResource",
-				userResource.Name,
-				"NamespacedName",
-				req.NamespacedName.String(),
-			)
+			r.SetProgressingCondition(ctx,
+			  req,
+			  userResource,
+			  metav1.ConditionTrue,
+			  s3v1alpha1.Reconciling,
+			  fmt.Sprintf("The secret %s containing the credentials will be deleted, and the user %s will be deleted from the S3 backend, then recreated (through another reconcile)", currentUserSecret.Name, userResource.Name))
+
 			err = r.deleteSecret(ctx, &currentUserSecret)
 			if err != nil {
-				logger.Error(err, "Deletion of secret associated to user have failed", "userResource",
-					userResource.Name,
-					"userResourceName",
-					userResource.Name,
-					"NamespacedName",
-					req.NamespacedName.String())
-				return r.SetReconciledCondition(
+				return r.SetDegradedCondition(
 					ctx,
 					req,
 					userResource,
+					metav1.ConditionFalse,
 					s3v1alpha1.Unreachable,
-					"Deletion of secret associated to user have failed",
+					fmt.Sprintf("Deletion of secret associated to user %s have failed", userResource.Name),
 					err,
 				)
 
 			}
 		} else {
-			logger.Info(
-				"The user will be deleted from the S3 backend, then recreated (through another reconcile), the secret will be kept.",
-				"userResource",
-				userResource.Name,
-				"NamespacedName",
-				req.NamespacedName.String(),
-			)
+			r.SetProgressingCondition(ctx,
+			req,
+			userResource,
+			metav1.ConditionTrue,
+			s3v1alpha1.Reconciling,
+			fmt.Sprintf("The user %s will be deleted from the S3 backend, then recreated (through another reconcile), the secret %s will be kept.", userResource.Name, currentUserSecret.Name))
+
 		}
 
 		err = s3Client.DeleteUser(userResource.Spec.AccessKey)
 		if err != nil {
-			logger.Error(err, "Could not delete user on S3 server", "userResource",
-				userResource.Name,
-				"userResourceName",
-				userResource.Name,
-				"NamespacedName",
-				req.NamespacedName.String())
-			return r.SetReconciledCondition(
+			return r.SetDegradedCondition(
 				ctx,
 				req,
 				userResource,
+				metav1.ConditionFalse,
 				s3v1alpha1.Unreachable,
 				fmt.Sprintf(
 					"Deletion of S3user %s on S3 server has failed",
@@ -556,20 +467,12 @@ func (r *S3UserReconciler) handleUpdate(
 		return r.handleCreate(ctx, req, userResource)
 	}
 
-	logger.Info("User was reconciled without error",
-		"userResource",
-		userResource.Name,
-		"NamespacedName",
-		req.NamespacedName.String(),
-	)
-
-	return r.SetReconciledCondition(
+	return r.SetAvailableCondition(
 		ctx,
 		req,
 		userResource,
 		s3v1alpha1.Reconciled,
-		"User reconciled",
-		err,
+		fmt.Sprintf("User %s reconciled", userResource.Name),
 	)
 }
 
@@ -578,7 +481,6 @@ func (r *S3UserReconciler) handleCreate(
 	req reconcile.Request,
 	userResource *s3v1alpha1.S3User,
 ) (reconcile.Result, error) {
-	logger := log.FromContext(ctx)
 
 	// Create S3Client
 	s3Client, err := r.S3Instancehelper.GetS3ClientForRessource(
@@ -590,12 +492,12 @@ func (r *S3UserReconciler) handleCreate(
 		userResource.Spec.S3InstanceRef,
 	)
 	if err != nil {
-		logger.Error(err, "An error occurred while getting s3Client")
-		return r.SetReconciledCondition(
+		return r.SetDegradedCondition(
 			ctx,
 			req,
 			userResource,
-			s3v1alpha1.Unreachable,
+			metav1.ConditionUnknown,
+			s3v1alpha1.InternalError,
 			"Failed to generate s3client from instance",
 			err,
 		)
@@ -605,19 +507,12 @@ func (r *S3UserReconciler) handleCreate(
 	secretKey, err := r.PasswordGeneratorHelper.Generate(20, true, false, true)
 	if err != nil {
 
-		logger.Error(err, fmt.Sprintf("Fail to generate password for user %s", userResource.Name),
-			"userResource",
-			userResource.Name,
-			"NamespacedName",
-			req.NamespacedName.String(),
-		)
-
-		return r.SetReconciledCondition(
+		return r.SetRejectedCondition(
 			ctx,
 			req,
 			userResource,
-			s3v1alpha1.Unreachable,
-			"An error occurred when attempting to generate password for user",
+			s3v1alpha1.InternalError,
+			fmt.Sprintf("Fail to generate password for user %s", userResource.Name),
 			err,
 		)
 	}
@@ -632,17 +527,11 @@ func (r *S3UserReconciler) handleCreate(
 	)
 	if err != nil {
 		// Error while creating the Kubernetes secret - requeue the request.
-		logger.Error(err, "Could not generate Kubernetes secret",
-			"userResource",
-			userResource.Name,
-			"NamespacedName",
-			req.NamespacedName.String(),
-		)
-		return r.SetReconciledCondition(
+		return r.SetRejectedCondition(
 			ctx,
 			req,
 			userResource,
-			s3v1alpha1.Unreachable,
+			s3v1alpha1.K8sApiError,
 			"Generation of associated k8s Secret has failed",
 			err,
 		)
@@ -659,62 +548,45 @@ func (r *S3UserReconciler) handleCreate(
 
 	// If none exist : we create the user, then the secret
 	if err != nil && k8sapierrors.IsNotFound(err) {
-		logger.Info(
-			"No secret found ; creating a new Secret",
-			"Secret.Namespace",
-			secret.Namespace,
-			"Secret.Name",
-			secret.Name,
-		)
+		r.SetProgressingCondition(ctx,
+			  req,
+			  userResource,
+			  metav1.ConditionTrue,
+			  s3v1alpha1.Reconciling,
+			  fmt.Sprintf("No secret found for user %s creating a new Secret", userResource.Name))
 
 		// Creating the user
 		err = s3Client.CreateUser(userResource.Spec.AccessKey, secretKey)
 
 		if err != nil {
-			logger.Error(
-				err,
-				"An error occurred while creating user on S3 server",
-				"userResource",
-				userResource.Name,
-				"NamespacedName",
-				req.NamespacedName.String(),
-			)
-			return r.SetReconciledCondition(
+
+			return r.SetRejectedCondition(
 				ctx,
 				req,
 				userResource,
 				s3v1alpha1.Unreachable,
-				"Creation of user on S3 instance has failed",
+				fmt.Sprintf("Creation of user %s on S3 instance has failed", userResource.Name),
 				err,
 			)
 		}
 
 		// Creating the secret
-		logger.Info(
-			"Creating a new secret to store the user's credentials",
-			"secretName",
-			secret.Name,
-			"userResource",
-			userResource.Name,
-			"NamespacedName",
-			req.NamespacedName.String(),
-		)
+		r.SetProgressingCondition(ctx,
+			  req,
+			  userResource,
+			  metav1.ConditionTrue,
+			  s3v1alpha1.Reconciling,
+			  fmt.Sprintf("Creating a new secret (%s) to store the credentials of user %s", secret.Name, userResource.Name))
+
 		err = r.Create(ctx, secret)
 		if err != nil {
-			logger.Error(err, "Could not create secret for user",
-				"secretName",
-				secret.Name,
-				"userResource",
-				userResource.Name,
-				"NamespacedName",
-				req.NamespacedName.String(),
-			)
-			return r.SetReconciledCondition(
+			return r.SetDegradedCondition(
 				ctx,
 				req,
 				userResource,
+				metav1.ConditionFalse,
 				s3v1alpha1.Unreachable,
-				"Creation of secret for user has failed",
+				fmt.Sprintf("Creation of secret %s for user %s has failed", secret.Name, userResource.Name),
 				err,
 			)
 		}
@@ -722,40 +594,32 @@ func (r *S3UserReconciler) handleCreate(
 		// Add policies
 		err = r.addPoliciesToUser(ctx, userResource)
 		if err != nil {
-			return r.SetReconciledCondition(
+			return r.SetDegradedCondition(
 				ctx,
 				req,
 				userResource,
+				metav1.ConditionFalse,
 				s3v1alpha1.Unreachable,
 				"Error while updating policies of user on S3 instance",
 				err,
 			)
 		}
 
-		return r.SetReconciledCondition(
+		return r.SetAvailableCondition(
 			ctx,
 			req,
 			userResource,
 			s3v1alpha1.Reconciled,
-			"User reconciled",
-			err,
+			fmt.Sprintf("User %s reconciled", userResource.Name),
 		)
 
 	} else if err != nil {
-		logger.Error(err, "Couldn't check secret existence",
-			"secretName",
-			secret.Name,
-			"userResource",
-			userResource.Name,
-			"NamespacedName",
-			req.NamespacedName.String(),
-		)
-		return r.SetReconciledCondition(
+		return r.SetRejectedCondition(
 			ctx,
 			req,
 			userResource,
-			s3v1alpha1.Unreachable,
-			"Fail to check if an existing secret already exist",
+			s3v1alpha1.K8sApiError,
+			fmt.Sprintf("Fail to check if an existing secret %s already exist for user %s", secret.Name, userResource.Name),
 			err,
 		)
 	} else {
@@ -765,17 +629,7 @@ func (r *S3UserReconciler) handleCreate(
 			if ref.Kind == "S3User" {
 				if ref.UID != userResource.UID {
 					err = fmt.Errorf("The secret matching the new S3User's spec is owned by a different S3User.")
-					logger.Error(err,
-						"S3User could not be created because of existing secret",
-						"conflictingUser",
-						ref.Name,
-						"secretName",
-						secret.Name,
-						"userResource",
-						userResource.Name,
-						"NamespacedName",
-						req.NamespacedName.String())
-					return r.SetReconciledCondition(
+					return r.SetRejectedCondition(
 						ctx,
 						req,
 						userResource,
@@ -790,12 +644,13 @@ func (r *S3UserReconciler) handleCreate(
 		if r.OverrideExistingSecret || r.ReadExistingSecret {
 			if r.ReadExistingSecret {
 				// Case 3.2a : read existing secret instead of updating it
-				logger.Info(fmt.Sprintf("The secret key will be retrieved from the secret named %s.", secret.Name), "secretName",
-					secret.Name,
-					"userResource",
-					userResource.Name,
-					"NamespacedName",
-					req.NamespacedName.String())
+				r.SetProgressingCondition(ctx,
+						  req,
+						  userResource,
+						  metav1.ConditionTrue,
+						  s3v1alpha1.Reconciling,
+						  fmt.Sprintf("The secret key of user %s will be retrieved from the secret named %s.", userResource.Name, secret.Name))
+
 				var cpData = *&existingK8sSecret.Data
 				for k, v := range cpData {
 					if k == userResource.Spec.SecretFieldNameSecretKey {
@@ -804,82 +659,69 @@ func (r *S3UserReconciler) handleCreate(
 				}
 			} else {
 				// Case 3.2b : they are not valid, but the operator is configured to overwrite it
-				logger.Info(fmt.Sprintf("A secret with the name %s already exists ; it will be overwritten because of operator configuration", secret.Name), "secretName",
-					secret.Name,
-					"userResource",
-					userResource.Name,
-					"NamespacedName",
-					req.NamespacedName.String())
+				r.SetProgressingCondition(ctx,
+						  req,
+						  userResource,
+						  metav1.ConditionTrue,
+						  s3v1alpha1.Reconciling,
+						  fmt.Sprintf("A secret with the name %s already exists ; it will be overwritten for user %s because of operator configuration", secret.Name, userResource.Name))
 			}
 			// Creating the user
 			err = s3Client.CreateUser(userResource.Spec.AccessKey, secretKey)
 			if err != nil {
-				logger.Error(
-					err,
-					"An error occurred while creating user on S3 server",
-					"userResource",
-					userResource.Name,
-					"NamespacedName",
-					req.NamespacedName.String(),
-				)
-				return r.SetReconciledCondition(
+				return r.SetRejectedCondition(
 					ctx,
 					req,
 					userResource,
 					s3v1alpha1.Unreachable,
-					"Creation of user on S3 instance has failed",
+					fmt.Sprintf("Creation of user %s on S3 instance has failed", userResource.Name),
 					err,
 				)
 			}
 			if r.OverrideExistingSecret {
 				// Updating the secret
-				logger.Info("Updating the pre-existing secret with new credentials",
-					"secretName",
-					secret.Name,
-					"userResource",
-					userResource.Name,
-					"NamespacedName",
-					req.NamespacedName.String(),
-				)
+				r.SetProgressingCondition(ctx,
+						  req,
+						  userResource,
+						  metav1.ConditionTrue,
+						  s3v1alpha1.Reconciling,
+						  fmt.Sprintf("Updating the pre-existing secret %s with new credentials for user %s", secret.Name, userResource.Name))
+
 				err = r.Update(ctx, secret)
 				if err != nil {
-					logger.Error(err, "Could not update secret", "secretName",
-						secret.Name,
-						"userResource",
-						userResource.Name,
-						"NamespacedName",
-						req.NamespacedName.String())
-					return r.SetReconciledCondition(
+					return r.SetDegradedCondition(
 						ctx,
 						req,
 						userResource,
+						metav1.ConditionFalse,
 						s3v1alpha1.Unreachable,
-						"Update of secret have failed",
+						fmt.Sprintf("Update of secret %s have failed for user %s", secret.Name, userResource.Name),
 						err,
 					)
+
 				}
 			}
 
 			// Add policies
 			err = r.addPoliciesToUser(ctx, userResource)
 			if err != nil {
-				return r.SetReconciledCondition(
+				return r.SetDegradedCondition(
 					ctx,
 					req,
 					userResource,
+					metav1.ConditionFalse,
 					s3v1alpha1.Unreachable,
 					"Error while updating associated policy",
 					err,
 				)
 			}
 
-			return r.SetReconciledCondition(
+			return r.SetAvailableCondition(
 				ctx,
 				req,
 				userResource,
 				s3v1alpha1.Reconciled,
-				"User reconciled",
-				err,
+				fmt.Sprintf("User %s reconciled", userResource.Name),
 			)
 		}
 
@@ -887,20 +729,13 @@ func (r *S3UserReconciler) handleCreate(
 		// The user will not be created, with no requeue and with two possible ways out : either toggle
 		// OverrideExistingSecret on, or delete the S3User whose credentials are not working anyway.
 		err = fmt.Errorf("A secret with the same name already exists ; as the operator is configured to NOT override nor read any pre-existing secrets, this user will not be created on S3 backend until spec change (to target new secret), or until the operator configuration is changed to override existing secrets")
-		logger.Error(err,
-			"S3User could not be created because of existing secret",
-			"secretName",
-			secret.Name,
-			"userResource",
-			userResource.Name,
-			"NamespacedName",
-			req.NamespacedName.String())
-		return r.SetReconciledCondition(
+
+		return r.SetRejectedCondition(
 			ctx,
 			req,
 			userResource,
 			s3v1alpha1.CreationFailure,
-			"Creation of user on S3 instance has failed because secret contains invalid credentials. The user's spec should be changed to target a different secret",
+			fmt.Sprintf("Creation of user %s on S3 instance has failed because a secret named %s already exists. The user's spec should be changed to target a different secret", userResource.Name, secret.Name),
 			err,
 		)
 	}

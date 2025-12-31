@@ -60,7 +60,7 @@ func TestGetS3ClientForRessource(t *testing.T) {
 			Name:      "default",
 			Namespace: "s3-operator",
 		},
-		Status: s3v1alpha1.S3InstanceStatus{Conditions: []metav1.Condition{{Reason: s3v1alpha1.Reconciled}}},
+		Status: s3v1alpha1.S3InstanceStatus{Conditions: []metav1.Condition{{Type: s3v1alpha1.ConditionAvailable, Reason: s3v1alpha1.Reconciled}}},
 	}
 
 	s3Instance_not_ready := &s3v1alpha1.S3Instance{
@@ -112,7 +112,7 @@ func TestGetS3ClientForRessource(t *testing.T) {
 	t.Run("error because instance not ready", func(t *testing.T) {
 		s3instanceHelper := helpers.NewS3InstanceHelper()
 		_, err := s3instanceHelper.GetS3ClientForRessource(context.TODO(), client, testUtils.S3Factory, "bucket-example", "default", "s3-operator/not-ready")
-		assert.Equal(t, "S3instance is not in a ready state", err.Error())
+		assert.Equal(t, "S3instance is not in a ready state: ", err.Error())
 	})
 }
 

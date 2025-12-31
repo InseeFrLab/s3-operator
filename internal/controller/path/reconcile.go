@@ -21,7 +21,6 @@ import (
 	"fmt"
 
 	k8sapierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -60,25 +59,13 @@ func (r *PathReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 
 	// Let's just set the status as Unknown when no status are available
 	if len(pathResource.Status.Conditions) == 0 {
-		meta.SetStatusCondition(
-			&pathResource.Status.Conditions,
-			metav1.Condition{
-				Type:               s3v1alpha1.ConditionReconciled,
-				Status:             metav1.ConditionUnknown,
-				ObservedGeneration: pathResource.Generation,
-				Reason:             s3v1alpha1.Reconciling,
-				Message:            "Starting reconciliation",
-			},
-		)
-		if err = r.Status().Update(ctx, pathResource); err != nil {
-			logger.Error(
-				err,
-				"Failed to update pathResource status",
-				"pathResourceName",
-				pathResource.Name,
-				"NamespacedName",
-				req.NamespacedName.String(),
-			)
+		_, err = r.SetProgressingCondition(ctx,
+						   req,
+						   pathResource,
+						   metav1.ConditionUnknown,
+						   s3v1alpha1.Reconciling,
+						   fmt.Sprintf("Newly discovered resource %s", pathResource.Name))
+		if err != nil {
 			return ctrl.Result{}, err
 		}
 
@@ -88,48 +75,55 @@ func (r *PathReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 		// your changes to the latest version and try again" which would re-trigger the reconciliation
 		// if we try to update it again in the following operations
 		if err := r.Get(ctx, req.NamespacedName, pathResource); err != nil {
-			logger.Error(
-				err,
-				"Failed to re-fetch pathResource",
-				"pathResourceName",
-				pathResource.Name,
-				"NamespacedName",
-				req.NamespacedName.String(),
-			)
+			r.SetDegradedCondition(ctx,
+					       req,
+					       pathResource,
+					       metav1.ConditionFalse,
+					       s3v1alpha1.K8sApiError,
+					       fmt.Sprintf("Failed to re-fetch path resource %s", pathResource.Name),
+					       err)
 			return ctrl.Result{}, err
 		}
 	}
 
 	// Add finalizer for this CR
 	if !controllerutil.ContainsFinalizer(pathResource, pathFinalizer) {
-		logger.Info("Adding finalizer to pathResource", "pathResourceName",
-			pathResource.Name, "NamespacedName", req.NamespacedName.String())
+		r.SetProgressingCondition(ctx,
+					  req,
+					  pathResource,
+					  metav1.ConditionTrue,
+					  s3v1alpha1.Reconciling,
+					  fmt.Sprintf("Adding finalizer to path resource %s", pathResource.Name))
 		if ok := controllerutil.AddFinalizer(pathResource, pathFinalizer); !ok {
-			logger.Error(
-				err,
-				"Failed to add finalizer into pathResource",
-				"pathResourceName",
-				pathResource.Name, "NamespacedName", req.NamespacedName.String())
+			r.SetDegradedCondition(ctx,
+					       req,
+					       pathResource,
+					       metav1.ConditionFalse,
+					       s3v1alpha1.InternalError,
+					       fmt.Sprintf("Failed to add finalizer to path resource %s", pathResource.Name),
+					       err)
 			return ctrl.Result{Requeue: true}, nil
 		}
 
 		if err := r.Update(ctx, pathResource); err != nil {
-			logger.Error(
-				err,
-				"an error occurred when adding finalizer on pathResource",
-				"pathResourceName",
-				pathResource.Name, "NamespacedName", req.NamespacedName.String(),
-			)
+			r.SetDegradedCondition(ctx,
+					       req,
+					       pathResource,
+					       metav1.ConditionFalse,
+					       s3v1alpha1.K8sApiError,
+					       fmt.Sprintf("An error occurred when adding finalizer on path resource %s", pathResource.Name),
+					       err)
 			return ctrl.Result{}, err
 		}
 
 		if err := r.Get(ctx, req.NamespacedName, pathResource); err != nil {
-			logger.Error(
-				err,
-				"Failed to re-fetch pathResource",
-				"pathResourceName",
-				pathResource.Name, "NamespacedName", req.NamespacedName.String(),
-			)
+			r.SetDegradedCondition(ctx,
+					       req,
+					       pathResource,
+					       metav1.ConditionFalse,
+					       s3v1alpha1.K8sApiError,
+					       fmt.Sprintf("Failed to re-fetch path resource %s", pathResource.Name),
+					       err)
 			return ctrl.Result{}, err
 		}
 	}
@@ -137,13 +131,16 @@ func (r *PathReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	// Managing path deletion with a finalizer
 	// REF : https://sdk.operatorframework.io/docs/building-operators/golang/advanced-topics/#external-resources
 	if pathResource.GetDeletionTimestamp() != nil {
-		logger.Info("pathResource have been marked for deletion", "pathResourceName",
-			pathResource.Name,
-			"NamespacedName",
-			req.NamespacedName.String())
+		r.SetProgressingCondition(ctx,
+					  req,
+					  pathResource,
+					  metav1.ConditionTrue,
+					  s3v1alpha1.Reconciling,
+					  fmt.Sprintf("Path resource have been marked for deletion %s", pathResource.Name))
 		return r.handleDeletion(ctx, req, pathResource)
 	}
 
+	r.SetProgressingCondition(ctx, req, pathResource, metav1.ConditionTrue, s3v1alpha1.Reconciling, fmt.Sprintf("Starting reconciliation of path %s", pathResource.Name))
 	return r.handleReconciliation(ctx, req, pathResource)
 
 }
@@ -154,7 +151,6 @@ func (r *PathReconciler) handleReconciliation(
 	pathResource *s3v1alpha1.Path,
 ) (reconcile.Result, error) {
 
-	logger := log.FromContext(ctx)
 
 	// Create S3Client
 	s3Client, err := r.S3Instancehelper.GetS3ClientForRessource(
@@ -166,11 +162,11 @@ func (r *PathReconciler) handleReconciliation(
 		pathResource.Spec.S3InstanceRef,
 	)
 	if err != nil {
-		logger.Error(err, "an error occurred while getting s3Client")
-		return r.SetReconciledCondition(
+		return r.SetDegradedCondition(
 			ctx,
 			req,
 			pathResource,
+			metav1.ConditionUnknown,
 			s3v1alpha1.Unreachable,
 			"Failed to generate s3client from instance",
 			err,
@@ -182,36 +178,20 @@ func (r *PathReconciler) handleReconciliation(
 	// Check bucket existence on the S3 server
 	bucketFound, err := s3Client.BucketExists(pathResource.Spec.BucketName)
 	if err != nil {
-		logger.Error(
-			err,
-			"an error occurred while checking the existence of a bucket",
-			"bucketName",
-			pathResource.Spec.BucketName,
-			"NamespacedName",
-			req.NamespacedName.String(),
-		)
-		return r.SetReconciledCondition(
+		return r.SetDegradedCondition(
 			ctx,
 			req,
 			pathResource,
+			metav1.ConditionUnknown,
 			s3v1alpha1.Unreachable,
-			"Error while checking if bucket already exist",
+			fmt.Sprintf("Error while checking if bucket %s already exist", pathResource.Spec.BucketName),
 			err,
 		)
 	}
 
 	// If bucket does not exist, the Path CR should be in a failing state
 	if !bucketFound {
-		errorBucketNotFound := fmt.Errorf(
-			"the path CR %s references a non-existing bucket : %s",
-			pathResource.Name,
-			pathResource.Spec.BucketName,
-		)
-		logger.Error(errorBucketNotFound, errorBucketNotFound.Error(), "pathResourceName",
-			pathResource.Name,
-			"NamespacedName",
-			req.NamespacedName.String())
-		return r.SetReconciledCondition(
+		return r.SetRejectedCondition(
 			ctx,
 			req,
 			pathResource,
@@ -236,22 +216,13 @@ func (r *PathReconciler) handleReconciliation(
 	for _, pathInCr := range pathResource.Spec.Paths {
 		pathExists, err := s3Client.PathExists(pathResource.Spec.BucketName, pathInCr)
 		if err != nil {
-			logger.Error(
-				err,
-				"An error occurred while checking a path's existence for bucket ressource",
-				"path",
-				pathInCr,
-				"bucketName",
-				pathResource.Spec.BucketName,
-				"NamespacedName",
-				req.NamespacedName.String(),
-			)
-			return r.SetReconciledCondition(
+			return r.SetDegradedCondition(
 				ctx,
 				req,
 				pathResource,
+				metav1.ConditionFalse,
 				s3v1alpha1.Unreachable,
-				fmt.Sprintf("The check for path [%s] in bucket has failed", pathInCr),
+				fmt.Sprintf("The check for path [%s] in bucket %s has failed", pathInCr, pathResource.Spec.BucketName),
 				err,
 			)
 		}
@@ -259,34 +230,23 @@ func (r *PathReconciler) handleReconciliation(
 		if !pathExists {
 			err = s3Client.CreatePath(pathResource.Spec.BucketName, pathInCr)
 			if err != nil {
-				logger.Error(
-					err,
-					"An error occurred while creating a path for bucket ressource",
-					"path",
-					pathInCr,
-					"bucketName",
-					pathResource.Spec.BucketName,
-					"NamespacedName",
-					req.NamespacedName.String(),
-				)
-				return r.SetReconciledCondition(
+				return r.SetRejectedCondition(
 					ctx,
 					req,
 					pathResource,
 					s3v1alpha1.Unreachable,
-					fmt.Sprintf("The creation of path [%s] in bucket has failed", pathInCr),
+					fmt.Sprintf("The creation of path [%s] in bucket %s has failed", pathInCr, pathResource.Spec.BucketName),
 					err,
 				)
 			}
 		}
 	}
 
-	return r.SetReconciledCondition(
+	return r.SetAvailableCondition(
 		ctx,
 		req,
 		pathResource,
 		s3v1alpha1.Reconciled,
 		"Path reconciled",
-		nil,
 	)
 }

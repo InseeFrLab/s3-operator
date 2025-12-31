@@ -128,9 +128,11 @@ func TestExistingSecret(t *testing.T) {
 			Name:      "example-user",
 		}, s3UserResourceUpdated)
 		assert.NoError(t, err)
-		assert.Equal(t, s3v1alpha1.CreationFailure, s3UserResourceUpdated.Status.Conditions[0].Reason)
-		assert.Equal(t, metav1.ConditionFalse, s3UserResourceUpdated.Status.Conditions[0].Status)
-		assert.Contains(t, s3UserResourceUpdated.Status.Conditions[0].Message, "Creation of user on S3 instance has failed because secret contains invalid credentials. The user's spec should be changed to target a different secret")
+		var conditions = s3UserResourceUpdated.Status.Conditions
+		var lastCondition = conditions[len(conditions) - 1]
+		assert.Equal(t, s3v1alpha1.CreationFailure, lastCondition.Reason)
+		assert.Equal(t, metav1.ConditionFalse, lastCondition.Status)
+		assert.Contains(t, lastCondition.Message, "Creation of user example-user on S3 instance has failed because a secret named example-user-secret already exists")
 	})
 
 	reconciler.ReadExistingSecret = false
@@ -155,9 +157,11 @@ func TestExistingSecret(t *testing.T) {
 			Name:      "example-user",
 		}, s3UserResourceUpdated)
 		assert.NoError(t, err)
-		assert.Equal(t, s3v1alpha1.Reconciled, s3UserResourceUpdated.Status.Conditions[0].Reason)
-		assert.Equal(t, metav1.ConditionTrue, s3UserResourceUpdated.Status.Conditions[0].Status)
-		assert.Contains(t, s3UserResourceUpdated.Status.Conditions[0].Message, "User reconciled")
+		var conditions = s3UserResourceUpdated.Status.Conditions
+		var lastCondition = conditions[len(conditions) - 1]
+		assert.Equal(t, s3v1alpha1.Reconciled, lastCondition.Reason)
+		assert.Equal(t, metav1.ConditionTrue, lastCondition.Status)
+		assert.Contains(t, lastCondition.Message, "User example-user reconciled")
 
 
 		newSecret := &corev1.Secret{}
@@ -190,9 +194,11 @@ func TestExistingSecret(t *testing.T) {
 			Name:      "example-user",
 		}, s3UserResourceUpdated)
 		assert.NoError(t, err)
-		assert.Equal(t, s3v1alpha1.Reconciled, s3UserResourceUpdated.Status.Conditions[0].Reason)
-		assert.Equal(t, metav1.ConditionTrue, s3UserResourceUpdated.Status.Conditions[0].Status)
-		assert.Contains(t, s3UserResourceUpdated.Status.Conditions[0].Message, "User reconciled")
+		var conditions = s3UserResourceUpdated.Status.Conditions
+		var lastCondition = conditions[len(conditions) - 1]
+		assert.Equal(t, s3v1alpha1.Reconciled, lastCondition.Reason)
+		assert.Equal(t, metav1.ConditionTrue, lastCondition.Status)
+		assert.Contains(t, lastCondition.Message, "User example-user reconciled")
 
 		newSecret := &corev1.Secret{}
 		err = testUtils.Client.Get(context.TODO(), client.ObjectKey{
@@ -224,9 +230,11 @@ func TestExistingSecret(t *testing.T) {
 			Name:      "example-thief-user",
 		}, s3UserResourceUpdated)
 		assert.NoError(t, err)
-		assert.Equal(t, s3v1alpha1.CreationFailure, s3UserResourceUpdated.Status.Conditions[0].Reason)
-		assert.Equal(t, metav1.ConditionFalse, s3UserResourceUpdated.Status.Conditions[0].Status)
-		assert.Contains(t, s3UserResourceUpdated.Status.Conditions[0].Message, "The secret matching the new S3User's spec is owned by a different, pre-existing S3User")
+		var conditions = s3UserResourceUpdated.Status.Conditions
+		var lastCondition = conditions[len(conditions) - 1]
+		assert.Equal(t, s3v1alpha1.CreationFailure, lastCondition.Reason)
+		assert.Equal(t, metav1.ConditionFalse, lastCondition.Status)
+		assert.Contains(t, lastCondition.Message, "The secret matching the new S3User's spec is owned by a different, pre-existing S3User")
 	})
 }
 
@@ -292,9 +300,11 @@ func TestHandleCreate(t *testing.T) {
 			Name:      "example-user",
 		}, s3UserResourceUpdated)
 		assert.NoError(t, err)
-		assert.Equal(t, s3v1alpha1.Reconciled, s3UserResourceUpdated.Status.Conditions[0].Reason)
-		assert.Equal(t, metav1.ConditionTrue, s3UserResourceUpdated.Status.Conditions[0].Status)
-		assert.Contains(t, s3UserResourceUpdated.Status.Conditions[0].Message, "User reconciled")
+		var conditions = s3UserResourceUpdated.Status.Conditions
+		var lastCondition = conditions[len(conditions) - 1]
+		assert.Equal(t, s3v1alpha1.Reconciled, lastCondition.Reason)
+		assert.Equal(t, metav1.ConditionTrue, lastCondition.Status)
+		assert.Contains(t, lastCondition.Message, "User example-user reconciled")
 	})
 
 	t.Run("error if using invalidS3Instance", func(t *testing.T) {
@@ -390,9 +400,11 @@ func TestHandleUpdate(t *testing.T) {
 				Name:      "existing-valid-user",
 			}, s3UserResourceUpdated)
 			assert.NoError(t, err)
-			assert.Equal(t, s3v1alpha1.Reconciled, s3UserResourceUpdated.Status.Conditions[0].Reason)
-			assert.Equal(t, metav1.ConditionTrue, s3UserResourceUpdated.Status.Conditions[0].Status)
-			assert.Contains(t, s3UserResourceUpdated.Status.Conditions[0].Message, "User reconciled")
+			var conditions = s3UserResourceUpdated.Status.Conditions
+			var lastCondition = conditions[len(conditions) - 1]
+			assert.Equal(t, s3v1alpha1.Reconciled, lastCondition.Reason)
+			assert.Equal(t, metav1.ConditionTrue, lastCondition.Status)
+			assert.Contains(t, lastCondition.Message, "User existing-valid-user reconciled")
 		})
 	})
 
@@ -451,9 +463,11 @@ func TestHandleUpdate(t *testing.T) {
 				Name:      "existing-valid-user",
 			}, s3UserResourceUpdated)
 			assert.NoError(t, err)
-			assert.Equal(t, s3v1alpha1.Reconciled, s3UserResourceUpdated.Status.Conditions[0].Reason)
-			assert.Equal(t, metav1.ConditionTrue, s3UserResourceUpdated.Status.Conditions[0].Status)
-			assert.Contains(t, s3UserResourceUpdated.Status.Conditions[0].Message, "User reconciled")
+			var conditions = s3UserResourceUpdated.Status.Conditions
+			var lastCondition = conditions[len(conditions) - 1]
+			assert.Equal(t, s3v1alpha1.Reconciled, lastCondition.Reason)
+			assert.Equal(t, metav1.ConditionTrue, lastCondition.Status)
+			assert.Contains(t, lastCondition.Message, "User existing-valid-user reconciled")
 		})
 	})
 

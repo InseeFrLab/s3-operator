@@ -19,12 +19,79 @@ package path_controller
 import (
 	"context"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	s3v1alpha1 "github.com/InseeFrLab/s3-operator/api/v1alpha1"
 )
 
-func (r *PathReconciler) SetReconciledCondition(
+func (r *PathReconciler) SetProgressingCondition(
+	ctx context.Context,
+	req ctrl.Request,
+	pathResource *s3v1alpha1.Path,
+	status metav1.ConditionStatus,
+	reason string,
+	message string,
+) (ctrl.Result, error) {
+	return r.ControllerHelper.SetReconciledCondition(
+		ctx,
+		r.Status(),
+		req,
+		pathResource,
+		&pathResource.Status.Conditions,
+		s3v1alpha1.ConditionProgressing,
+		status,
+		reason,
+		message,
+		nil,
+		r.ReconcilePeriod,
+	)
+}
+func (r *PathReconciler) SetAvailableCondition(
+	ctx context.Context,
+	req ctrl.Request,
+	pathResource *s3v1alpha1.Path,
+	reason string,
+	message string,
+) (ctrl.Result, error) {
+	return r.ControllerHelper.SetReconciledCondition(
+		ctx,
+		r.Status(),
+		req,
+		pathResource,
+		&pathResource.Status.Conditions,
+		s3v1alpha1.ConditionAvailable,
+		metav1.ConditionTrue,
+		reason,
+		message,
+		nil,
+		r.ReconcilePeriod,
+	)
+}
+func (r *PathReconciler) SetDegradedCondition(
+	ctx context.Context,
+	req ctrl.Request,
+	pathResource *s3v1alpha1.Path,
+	status metav1.ConditionStatus,
+	reason string,
+	message string,
+	err error,
+) (ctrl.Result, error) {
+	return r.ControllerHelper.SetReconciledCondition(
+		ctx,
+		r.Status(),
+		req,
+		pathResource,
+		&pathResource.Status.Conditions,
+		s3v1alpha1.ConditionDegraded,
+		status,
+		reason,
+		message,
+		err,
+		r.ReconcilePeriod,
+	)
+}
+func (r *PathReconciler) SetRejectedCondition(
 	ctx context.Context,
 	req ctrl.Request,
 	pathResource *s3v1alpha1.Path,
@@ -38,11 +105,11 @@ func (r *PathReconciler) SetReconciledCondition(
 		req,
 		pathResource,
 		&pathResource.Status.Conditions,
-		s3v1alpha1.ConditionReconciled,
+		s3v1alpha1.ConditionRejected,
+		metav1.ConditionFalse,
 		reason,
 		message,
 		err,
 		r.ReconcilePeriod,
 	)
-
 }

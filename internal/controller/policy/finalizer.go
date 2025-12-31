@@ -18,10 +18,11 @@ package policy_controller
 
 import (
 	"context"
+	"fmt"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	s3v1alpha1 "github.com/InseeFrLab/s3-operator/api/v1alpha1"
@@ -29,9 +30,9 @@ import (
 
 func (r *PolicyReconciler) finalizePolicy(
 	ctx context.Context,
+	req reconcile.Request,
 	policyResource *s3v1alpha1.Policy,
 ) error {
-	logger := log.FromContext(ctx)
 	s3Client, err := r.S3Instancehelper.GetS3ClientForRessource(
 		ctx,
 		r.Client,
@@ -41,7 +42,15 @@ func (r *PolicyReconciler) finalizePolicy(
 		policyResource.Spec.S3InstanceRef,
 	)
 	if err != nil {
-		logger.Error(err, "an error occurred while getting s3Client")
+		r.SetDegradedCondition(
+			ctx,
+			req,
+			policyResource,
+			metav1.ConditionUnknown,
+			s3v1alpha1.Unreachable,
+			"Failed to generate s3client from instance",
+			err,
+		)
 		return err
 	}
 	if s3Client.GetConfig().PolicyDeletionEnabled {
@@ -55,49 +64,43 @@ func (r *PolicyReconciler) handleDeletion(
 	req reconcile.Request,
 	policyResource *s3v1alpha1.Policy,
 ) (reconcile.Result, error) {
-	logger := log.FromContext(ctx)
 	if controllerutil.ContainsFinalizer(policyResource, policyFinalizer) {
 		// Run finalization logic for policyFinalizer. If the
 		// finalization logic fails, don't remove the finalizer so
 		// that we can retry during the next reconciliation.
-		if err := r.finalizePolicy(ctx, policyResource); err != nil {
-			logger.Error(
-				err,
-				"An error occurred when attempting to finalize the policy",
-				"policyName",
-				policyResource.Spec.Name,
-				"NamespacedName",
-				req.NamespacedName.String(),
-			)
-			return r.SetReconciledCondition(
+		if err := r.finalizePolicy(ctx, req, policyResource); err != nil {
+			return r.SetDegradedCondition(
 				ctx,
 				req,
 				policyResource,
+				metav1.ConditionFalse,
 				s3v1alpha1.DeletionFailure,
-				"Policy deletion has failed",
+				fmt.Sprintf("Policy %s deletion has failed", policyResource.Spec.Name),
 				err,
 			)
 		}
 
 		if ok := controllerutil.RemoveFinalizer(policyResource, policyFinalizer); !ok {
-			logger.Info(
-				"Failed to remove finalizer for policyResource",
-				"policyName",
-				policyResource.Spec.Name,
-				"NamespacedName",
-				req.NamespacedName.String(),
+			r.SetProgressingCondition(
+				ctx,
+				req,
+				policyResource,
+				metav1.ConditionFalse,
+				s3v1alpha1.InternalError,
+				fmt.Sprintf("Failed to remove finalizer for policy %s", policyResource.Spec.Name),
 			)
 			return ctrl.Result{Requeue: true}, nil
 		}
 
 		if err := r.Update(ctx, policyResource); err != nil {
-			logger.Error(
+			r.SetDegradedCondition(
+				ctx,
+				req,
+				policyResource,
+				metav1.ConditionFalse,
+				s3v1alpha1.K8sApiError,
+				fmt.Sprintf("An error occured when removing finalizer from policy %s", policyResource.Spec.Name),
 				err,
-				"an error occurred when removing finalizer from policy",
-				"policyName",
-				policyResource.Spec.Name,
-				"NamespacedName",
-				req.NamespacedName.String(),
 			)
 			return ctrl.Result{}, err
 		}

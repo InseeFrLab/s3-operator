@@ -291,6 +291,7 @@ func TestHandleCreate(t *testing.T) {
 		assert.Equal(t, s3v1alpha1.Reconciled, s3UserResourceUpdated.Status.Conditions[0].Reason)
 		assert.Equal(t, metav1.ConditionTrue, s3UserResourceUpdated.Status.Conditions[0].Status)
 		assert.Contains(t, s3UserResourceUpdated.Status.Conditions[0].Message, "User reconciled")
+
 	})
 
 	t.Run("error if using invalidS3Instance", func(t *testing.T) {
@@ -310,6 +311,8 @@ func TestHandleCreate(t *testing.T) {
 		assert.Equal(t, "example-user", string(secretCreated.Data["accessKey"]))
 		assert.GreaterOrEqual(t, len(string(secretCreated.Data["secretKey"])), 20)
 		assert.NotEmpty(t, string(secretCreated.Data["s3ConnectionURL"]))
+		assert.Contains(t, string(secretCreated.Data["s3ConnectionURL"]), "@minio.example.com")
+		assert.Contains(t, string(secretCreated.Data["s3ConnectionURL"]), "https://example-user")
 	})
 }
 

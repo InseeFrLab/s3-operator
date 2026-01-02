@@ -32,14 +32,16 @@ func NewS3Factory() *S3Factory {
 
 func (mockedS3Provider *S3Factory) GenerateS3Client(s3Provider string, s3Config *s3client.S3Config) (s3client.S3Client, error) {
 	s3Logger := ctrl.Log.WithValues("logger", "s3factory")
-	endpoint, isSSL, err := s3clientImpl.ConstructEndpointFromURL(s3Config.S3Url)
+	endpoint, port, scheme, err := s3clientImpl.ConstructEndpointFromURL(s3Config.S3Url)
 	if err != nil {
 		s3Logger.Error(err, "an error occurred while creating a new minio client")
 		return nil, err
 	}
-	s3Config.Secure = isSSL
+	s3Config.Secure = scheme == "https"
 	s3Config.Endpoint = endpoint
+	s3Config.Scheme = scheme
 	s3Config.PathStyle = false
+	s3Config.Port = port
 	if s3Provider == "mockedS3Provider" {
 		return s3clientImpl.NewMockedS3Client(s3Config), nil
 	}

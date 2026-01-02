@@ -125,19 +125,20 @@ func generateAdminMinioClient(
 	return minioAdminClient, nil
 }
 
-func ConstructEndpointFromURL(url string) (string, bool, error) {
+func ConstructEndpointFromURL(url string) (string, string, string, error) {
 	parsedURL, err := neturl.Parse(url)
 	if err != nil {
-		return "", false, fmt.Errorf("cannot detect if url use ssl or not")
+		return "", "", "", fmt.Errorf("cannot detect if url use ssl or not")
 	}
-
+	scheme := parsedURL.Scheme
 	endpoint := parsedURL.Hostname()
-	if (parsedURL.Scheme != "https" || parsedURL.Port() != "443") &&
-		(parsedURL.Scheme != "http" || parsedURL.Port() != "80") {
-		endpoint = fmt.Sprintf("%s:%s", endpoint, parsedURL.Port())
+	port := parsedURL.Port()
+	if port != "" && (scheme != "https" || port != "443") &&
+		(scheme != "http" || port != "80") {
+		endpoint = fmt.Sprintf("%s:%s", endpoint, port)
 	}
 
-	return endpoint, parsedURL.Scheme == "https", nil
+	return endpoint, port, scheme, nil
 }
 
 func addTlsClientConfigToMinioOptions(caCertificates []string, minioOptions *minio.Options) {

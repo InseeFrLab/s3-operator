@@ -34,6 +34,8 @@ type S3Config struct {
 	PolicyDeletionEnabled bool
 	Secure                bool
 	Endpoint              string
+	Port                  string
+	Scheme                string
 	PathStyle             bool
 }
 

@@ -634,10 +634,11 @@ func (r *S3UserReconciler) handleCreate(
 			"s3region":        []byte(s3Client.GetConfig().Region),
 			"s3CACertificate": []byte(strings.Join(s3Client.GetConfig().CaCertificatesBase64, ",")),
 			"s3url":           []byte(s3Client.GetConfig().S3Url),
-			"s3ConnectionURL": []byte(fmt.Sprintf("https://%s:%s@%s",
+			"s3ConnectionURL": []byte(fmt.Sprintf("%s://%s:%s@%s",
+				s3Client.GetConfig().Scheme,
 				userResource.Spec.AccessKey,
 				secretKey,
-				strings.TrimPrefix(s3Client.GetConfig().Endpoint, "https://"),
+				s3Client.GetConfig().Endpoint,
 			),
 			),
 		})

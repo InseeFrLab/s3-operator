@@ -48,6 +48,8 @@ func (t *TestUtils) SetupMockedS3FactoryAndClient() {
 		S3Url:    "https://minio.example.com",
 		Secure:   true,
 		Endpoint: "minio.example.com",
+		Scheme:   "https",
+		Port:     "",
 	})
 	mockedS3Client.On("BucketExists", "test-bucket").Return(false, nil)
 	mockedS3Client.On("BucketExists", "existing-bucket").Return(true, nil)

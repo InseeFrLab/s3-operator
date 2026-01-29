@@ -17,7 +17,7 @@ limitations under the License.
 package s3client
 
 import (
-	"github.com/minio/madmin-go/v4"
+	"github.com/minio/madmin-go/v3"
 )
 
 type S3Config struct {

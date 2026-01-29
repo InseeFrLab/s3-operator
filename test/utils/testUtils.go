@@ -23,7 +23,7 @@ import (
 	s3client "github.com/InseeFrLab/s3-operator/internal/s3/client"
 	s3factory "github.com/InseeFrLab/s3-operator/internal/s3/factory"
 	"github.com/InseeFrLab/s3-operator/test/mocks"
-	"github.com/minio/madmin-go/v4"
+	"github.com/minio/madmin-go/v3"
 	"github.com/stretchr/testify/mock"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"

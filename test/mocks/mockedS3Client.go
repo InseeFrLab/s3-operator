@@ -18,7 +18,7 @@ package mocks
 
 import (
 	s3client "github.com/InseeFrLab/s3-operator/internal/s3/client"
-	"github.com/minio/madmin-go/v4"
+	"github.com/minio/madmin-go/v3"
 	"github.com/stretchr/testify/mock"
 	ctrl "sigs.k8s.io/controller-runtime"
 )

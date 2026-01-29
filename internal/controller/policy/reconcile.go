@@ -31,7 +31,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	s3v1alpha1 "github.com/InseeFrLab/s3-operator/api/v1alpha1"
-	"github.com/minio/madmin-go/v4"
+	"github.com/minio/madmin-go/v3"
 )
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to

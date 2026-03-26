@@ -252,7 +252,7 @@ func (minioS3Client *MinioS3Client) PathExists(bucketname string, path string) (
 	_, err := minioS3Client.client.
 		StatObject(context.Background(),
 			bucketname,
-			"/"+path+"/"+".keep",
+			path+"/"+".keep",
 			minio.StatObjectOptions{})
 	if err != nil {
 		if minio.ToErrorResponse(err).StatusCode == 404 {

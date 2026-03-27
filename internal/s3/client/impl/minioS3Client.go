@@ -28,7 +28,7 @@ import (
 	"strings"
 
 	s3client "github.com/InseeFrLab/s3-operator/internal/s3/client"
-	"github.com/minio/madmin-go/v4"
+	"github.com/minio/madmin-go/v3"
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -301,7 +301,7 @@ func (minioS3Client *MinioS3Client) GetQuota(name string) (int64, error) {
 	if err != nil {
 		s3Logger.Error(err, "error while getting quota on bucket", "bucket", name)
 	}
-	return int64(bucketQuota.Size), err
+	return int64(bucketQuota.Quota), err
 }
 
 func (minioS3Client *MinioS3Client) SetQuota(name string, quota int64) error {
@@ -310,7 +310,7 @@ func (minioS3Client *MinioS3Client) SetQuota(name string, quota int64) error {
 	err := minioS3Client.adminClient.SetBucketQuota(
 		context.Background(),
 		name,
-		&madmin.BucketQuota{Size: uint64(quota), Type: madmin.HardQuota},
+		&madmin.BucketQuota{Quota: uint64(quota), Type: madmin.HardQuota},
 	)
 	return err
 }
@@ -333,7 +333,7 @@ func (minioS3Client *MinioS3Client) GetPolicyInfo(name string) (*madmin.PolicyIn
 	s3Logger := ctrl.Log.WithValues("logger", "s3clientimplminio")
 	s3Logger.Info("retrieving policy info", "policy", name)
 
-	policy, err := minioS3Client.adminClient.InfoCannedPolicy(context.Background(), name)
+	policy, err := minioS3Client.adminClient.InfoCannedPolicyV2(context.Background(), name)
 	if err != nil {
 		// Not ideal (breaks if error nomenclature changes), but still
 		// better than testing the error message as we did before

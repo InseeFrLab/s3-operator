@@ -53,7 +53,7 @@ func (t *TestUtils) SetupMockedS3FactoryAndClient() {
 	})
 	mockedS3Client.On("BucketExists", "test-bucket").Return(false, nil)
 	mockedS3Client.On("BucketExists", "existing-bucket").Return(true, nil)
-	mockedS3Client.On("CreateBucket", "test-bucket").Return(nil)
+	mockedS3Client.On("CreateBucket", "test-bucket", false).Return(nil)
 	mockedS3Client.On("SetQuota", "test-bucket", int64(10)).Return(nil)
 	mockedS3Client.On("ListBuckets").Return([]string{}, nil)
 	mockedS3Client.On("GetPolicyInfo", "example-policy").Return(nil, nil)
@@ -127,7 +127,7 @@ func (t *TestUtils) SetupMockedS3FactoryAndClient() {
 
 	mockedInvalidS3Client := mocks.NewMockedS3Client(s3client.S3Config{})
 	mockedInvalidS3Client.On("BucketExists", "test-bucket").Return(false, nil)
-	mockedInvalidS3Client.On("CreateBucket", "test-bucket").Return(nil)
+	mockedInvalidS3Client.On("CreateBucket", "test-bucket", false).Return(nil)
 	mockedInvalidS3Client.On("SetQuota", "test-bucket", int64(10)).Return(nil)
 
 	mockedInvalidS3Client.On("ListBuckets").Return([]string{}, fmt.Errorf("random error"))

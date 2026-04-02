@@ -37,10 +37,17 @@ func (mockedS3Provider *MockedS3Client) BucketExists(name string) (bool, error) 
 	return args.Bool(0), args.Error(1)
 }
 
-func (mockedS3Provider *MockedS3Client) CreateBucket(name string) error {
+func (mockedS3Provider *MockedS3Client) CreateBucket(name string, objectLocking bool) error {
 	s3Logger := ctrl.Log.WithValues("logger", "mockedS3Client")
-	s3Logger.Info("checking a bucket", "bucket", name)
-	args := mockedS3Provider.Called(name)
+	s3Logger.Info("creating a bucket", "bucket", name, "objectLocking", objectLocking)
+	args := mockedS3Provider.Called(name, objectLocking)
+	return args.Error(0)
+}
+
+func (mockedS3Provider *MockedS3Client) SetBucketRetention(name string, mode string, days uint) error {
+	s3Logger := ctrl.Log.WithValues("logger", "mockedS3Client")
+	s3Logger.Info("setting bucket retention", "bucket", name, "mode", mode, "days", days)
+	args := mockedS3Provider.Called(name, mode, days)
 	return args.Error(0)
 }
 

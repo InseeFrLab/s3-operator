@@ -441,7 +441,7 @@ func (r *BucketReconciler) handleCreation(
 	}
 
 	// Bucket creation
-	err = s3Client.CreateBucket(bucketResource.Spec.Name)
+	err = s3Client.CreateBucket(bucketResource.Spec.Name, bucketResource.Spec.ObjectLocking)
 	if err != nil {
 		logger.Error(
 			err,
@@ -503,6 +503,33 @@ func (r *BucketReconciler) handleCreation(
 			),
 			err,
 		)
+	}
+
+	// Retention configuration (requires objectLocking)
+	if bucketResource.Spec.Retention != nil && bucketResource.Spec.ObjectLocking {
+		err = s3Client.SetBucketRetention(
+			bucketResource.Spec.Name,
+			bucketResource.Spec.Retention.Mode,
+			bucketResource.Spec.Retention.Days,
+		)
+		if err != nil {
+			logger.Error(
+				err,
+				"An error occurred while setting retention for bucket",
+				"bucketName",
+				bucketResource.Spec.Name,
+				"NamespacedName",
+				req.Namespace,
+			)
+			return r.SetReconciledCondition(
+				ctx,
+				req,
+				bucketResource,
+				s3v1alpha1.CreationFailure,
+				"An error occurred while setting retention on bucket",
+				err,
+			)
+		}
 	}
 
 	// Path creation

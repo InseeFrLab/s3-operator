@@ -41,7 +41,8 @@ type S3Config struct {
 
 type S3Client interface {
 	BucketExists(name string) (bool, error)
-	CreateBucket(name string) error
+	CreateBucket(name string, objectLocking bool) error
+	SetBucketRetention(name string, mode string, days uint) error
 	DeleteBucket(name string) error
 	CreatePath(bucketname string, path string) error
 	PathExists(bucketname string, path string) (bool, error)

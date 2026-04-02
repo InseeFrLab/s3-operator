@@ -187,13 +187,35 @@ func (minioS3Client *MinioS3Client) BucketExists(name string) (bool, error) {
 	return minioS3Client.client.BucketExists(context.Background(), name)
 }
 
-func (minioS3Client *MinioS3Client) CreateBucket(name string) error {
+func (minioS3Client *MinioS3Client) CreateBucket(name string, objectLocking bool) error {
 	s3Logger := ctrl.Log.WithValues("logger", "s3clientimplminio")
-	s3Logger.Info("creating bucket", "bucket", name)
+	s3Logger.Info("creating bucket", "bucket", name, "objectLocking", objectLocking)
 	return minioS3Client.client.MakeBucket(
 		context.Background(),
 		name,
-		minio.MakeBucketOptions{Region: minioS3Client.s3Config.Region},
+		minio.MakeBucketOptions{Region: minioS3Client.s3Config.Region, ObjectLocking: objectLocking},
+	)
+}
+
+func (minioS3Client *MinioS3Client) SetBucketRetention(name string, mode string, days uint) error {
+	s3Logger := ctrl.Log.WithValues("logger", "s3clientimplminio")
+	s3Logger.Info("setting bucket retention", "bucket", name, "mode", mode, "days", days)
+	var retentionMode minio.RetentionMode
+	switch mode {
+	case "governance":
+		retentionMode = minio.Governance
+	case "compliance":
+		retentionMode = minio.Compliance
+	default:
+		retentionMode = minio.Governance
+	}
+	unit := minio.Days
+	return minioS3Client.client.SetBucketObjectLockConfig(
+		context.Background(),
+		name,
+		&retentionMode,
+		&days,
+		&unit,
 	)
 }
 

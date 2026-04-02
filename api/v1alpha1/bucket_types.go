@@ -48,6 +48,29 @@ type BucketSpec struct {
 	// Quota to apply to the bucket
 	// +kubebuilder:validation:Required
 	Quota Quota `json:"quota"`
+
+	// Enable object locking on the bucket. Must be set at creation time.
+	// Enables versioning automatically.
+	// +kubebuilder:validation:Optional
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="objectLocking is immutable"
+	ObjectLocking bool `json:"objectLocking,omitempty"`
+
+	// Default retention configuration for the bucket. Requires objectLocking to be true.
+	// +kubebuilder:validation:Optional
+	Retention *RetentionSpec `json:"retention,omitempty"`
+}
+
+// RetentionSpec defines the default retention policy for a locked bucket.
+type RetentionSpec struct {
+	// Retention mode: "governance" or "compliance"
+	// +kubebuilder:validation:Enum=governance;compliance
+	// +kubebuilder:validation:Required
+	Mode string `json:"mode"`
+
+	// Retention period in days
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Required
+	Days uint `json:"days"`
 }
 
 // BucketStatus defines the observed state of Bucket
